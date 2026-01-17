@@ -253,7 +253,7 @@ with tab5:
     else:
         st.warning("선택한 날짜에 주문 데이터가 없습니다.")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석", "🧩 옵션 분석"])
+
 
 # ... (Tab 1~5 code remains same, I will target the tabs line update separately if needed, but here I can just update the tab list line and the new tab content) ...
 # Actually, I should update the tab definition line first.
