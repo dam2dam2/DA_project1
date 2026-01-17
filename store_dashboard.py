@@ -76,7 +76,7 @@ k4.metric("취소 금액", f"{cancel_sales:,.0f}원", delta=f"-{(cancel_sales/to
 st.divider()
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석"])
 
 # Tab 1: 매출 트렌드
 with tab1:
@@ -177,3 +177,78 @@ with tab4:
     corr = numeric_df.corr()
     fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r', title="Correlation Heatmap")
     st.plotly_chart(fig_corr, use_container_width=True)
+
+# Tab 5: 특정 날짜 상세 분석 (Peak Day Analysis)
+with tab5:
+    st.subheader("📅 특정 날짜 상세 분석 (Peak Day Deep Dive)")
+    st.markdown("매출이 유독 높거나 관심 있는 **특정 날짜**를 선택하여, 해당 일자의 **효자 상품**과 **주요 셀러**를 분석합니다.")
+    
+    # 날짜별 매출 데이터 생성
+    daily_stats = filtered_df.groupby(filtered_df['주문일'].dt.date).agg({
+        '결제금액(통합)': 'sum', 
+        '주문번호': 'count'
+    }).reset_index().sort_values('결제금액(통합)', ascending=False)
+    
+    daily_stats.columns = ['Date', 'Sales', 'Orders']
+    
+    # 선택 옵션 생성 (예: "2025-10-17 (매출: 12,000,000원, 주문: 150건)")
+    daily_stats['label'] = daily_stats.apply(
+        lambda x: f"{x['Date']} (매출: {x['Sales']:,.0f}원, 주문: {x['Orders']}건)", axis=1
+    )
+    
+    # 날짜 선택 (Selectbox 사용 - 검색 가능)
+    # 기본값: 매출 1위 날짜
+    selected_option = st.selectbox(
+        "분석할 날짜를 선택하세요 (날짜 또는 매출로 검색 가능)", 
+        options=daily_stats['label'],
+        index=0
+    )
+    
+    # 선택된 라벨에서 날짜 추출
+    selected_date_str = selected_option.split(' ')[0]
+    selected_date = pd.to_datetime(selected_date_str).date()
+    
+    # 해당 날짜 데이터 필터링
+    target_df = df[df['주문일'].dt.date == selected_date]
+    
+    if not target_df.empty:
+        # Day KPI
+        day_sales = target_df['결제금액(통합)'].sum()
+        day_orders = len(target_df)
+        
+        c_kpi1, c_kpi2 = st.columns(2)
+        c_kpi1.metric(f"{selected_date} 매출", f"{day_sales:,.0f}원")
+        c_kpi2.metric(f"{selected_date} 주문 수", f"{day_orders:,}건")
+        
+        st.divider()
+        
+        # 시각화: 상품 & 셀러
+        col_d1, col_d2 = st.columns(2)
+        
+        with col_d1:
+            st.subheader("🏆 당일 판매량 Top 10 상품")
+            # 금액 기준 vs 수량 기준 (여기선 금액 기준)
+            day_top_prod = target_df.groupby('상품명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
+            
+            fig_day_prod = px.bar(day_top_prod, x='결제금액(통합)', y='상품명', orientation='h', 
+                                  title=f"{selected_date} 상품별 매출", text_auto='.2s', color='결제금액(통합)')
+            fig_day_prod.update_layout(yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_day_prod, use_container_width=True)
+            
+        with col_d2:
+            st.subheader("🥇 당일 매출 Top 10 셀러")
+            if '셀러명' in target_df.columns:
+                day_top_seller = target_df.groupby('셀러명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
+                
+                fig_day_seller = px.pie(day_top_seller, values='결제금액(통합)', names='셀러명', 
+                                        title=f"{selected_date} 셀러 매출 비중", hole=0.3)
+                st.plotly_chart(fig_day_seller, use_container_width=True)
+            else:
+                st.info("셀러명 정보가 없습니다.")
+        
+        st.subheader("📋 당일 주문 상세 내역")
+        st.dataframe(target_df[['주문번호', '상품명', '주문수량', '결제금액(통합)', '셀러명', '주문경로']].sort_values('결제금액(통합)', ascending=False), 
+                     use_container_width=True)
+        
+    else:
+        st.warning("선택한 날짜에 주문 데이터가 없습니다.")
