@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-file_path = '/Users/dmjeong/innercircle/project1/data/store_data.xlsx'
+file_path = '/Users/dmjeong/innercircle/DA_project1/data/store_data.xlsx'
 
 print(f"Loading data from {file_path}...")
 try:
