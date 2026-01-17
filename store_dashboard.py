@@ -76,7 +76,7 @@ k4.metric("취소 금액", f"{cancel_sales:,.0f}원", delta=f"-{(cancel_sales/to
 st.divider()
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석", "🧩 옵션 분석"])
 
 # Tab 1: 매출 트렌드
 with tab1:
@@ -252,3 +252,65 @@ with tab5:
         
     else:
         st.warning("선택한 날짜에 주문 데이터가 없습니다.")
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석", "🧩 옵션 분석"])
+
+# ... (Tab 1~5 code remains same, I will target the tabs line update separately if needed, but here I can just update the tab list line and the new tab content) ...
+# Actually, I should update the tab definition line first.
+# Wait, let's just update the content at the end and the tab definition.
+
+# Tab 6 Content
+with tab6:
+    st.subheader("🧩 상품 옵션 상세 분석")
+    st.markdown("상품명에 포함된 **옵션 정보(▶)**를 분리하여, **옵션별 인기 순위**와 **상품별 옵션 분포**를 분석합니다.")
+
+    # 전처리 (Parsing)
+    import re
+    def parse_product_name(row):
+        full_name = str(row['상품명'])
+        # (수량) 제거 pattern: 괄호 안 숫자+개/EA/ea 등
+        clean_name = re.sub(r'\(\d+(개|EA|ea)\)', '', full_name, flags=re.IGNORECASE).strip()
+        # 특수문자 ▶, ▷ 처리
+        parts = re.split(r'[▶▷]', clean_name)
+        
+        if len(parts) > 1:
+            item_name = parts[0].strip()
+            # 옵션이 여러 개일 수 있으나 첫 번째 구분자 이후를 통으로 옵션으로 봄
+            option_name = parts[1].strip()
+        else:
+            item_name = clean_name
+            option_name = "단일 옵션"
+        return pd.Series([item_name, option_name])
+
+    with st.spinner("옵션 데이터 분리 및 분석 중..."):
+        # 데이터 분리 적용 (캐싱이 안되어 있으므로 매번 실행됨 - 최적화 필요시 @st.cache_data 사용 고려)
+        option_df = filtered_df.copy()
+        option_df[['ItemName', 'OptionName']] = option_df.apply(parse_product_name, axis=1)
+        
+        # 1. 옵션별 빈도 분석
+        st.subheader("1. 가장 많이 선택된 옵션 (Top Options)")
+        option_counts = option_df['OptionName'].value_counts().head(20).reset_index()
+        option_counts.columns = ['OptionName', 'Count']
+        
+        fig_opt_bar = px.bar(option_counts, x='Count', y='OptionName', orientation='h', 
+                             title="인기 옵션 Top 20", text_auto=True, color='Count')
+        fig_opt_bar.update_layout(yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig_opt_bar, use_container_width=True)
+        
+        # 2. 상품별 옵션 리스트 및 비중
+        st.subheader("2. 상품별 옵션 분포 (Sunburst Chart)")
+        # 매출 상위 5개 상품에 대해서만 시각화 (너무 많으면 복잡함)
+        top_5_items = option_df.groupby('ItemName')['결제금액(통합)'].sum().sort_values(ascending=False).head(5).index
+        
+        sunburst_df = option_df[option_df['ItemName'].isin(top_5_items)]
+        sunburst_data = sunburst_df.groupby(['ItemName', 'OptionName']).size().reset_index(name='Count')
+        
+        fig_sun = px.sunburst(sunburst_data, path=['ItemName', 'OptionName'], values='Count',
+                              title="매출 상위 5개 상품의 옵션 구성")
+        st.plotly_chart(fig_sun, use_container_width=True)
+        
+        # 3. 분리된 데이터 미리보기
+        st.subheader("3. 분리된 데이터 확인")
+        st.dataframe(option_df[['주문번호', '상품명', 'ItemName', 'OptionName', '주문수량', '결제금액(통합)']].head(100), 
+                     use_container_width=True)
+
