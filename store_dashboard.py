@@ -20,7 +20,9 @@ def load_data(file_path):
         df['주문일'] = pd.to_datetime(df['주문일'], errors='coerce')
     return df
 
-DATA_PATH = '/Users/dmjeong/innercircle/DA_project1/data/store_data.xlsx'
+# 현재 스크립트의 디렉토리를 기준으로 상대 경로 설정
+current_dir = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(current_dir, 'data', 'store_data.xlsx')
 
 if not os.path.exists(DATA_PATH):
     st.error(f"데이터 파일이 없습니다: {DATA_PATH}")
