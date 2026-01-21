@@ -86,14 +86,6 @@ else:
     filtered_df = df_raw
     adv_filtered_df = df_adv if adv_exists else None
 
-# --- 4.5 이상치 제거 (Advanced용) ---
-if adv_exists:
-    st.sidebar.subheader("🛠️ 데이터 정제")
-    remove_outliers = st.sidebar.checkbox("중량 이상치 제거 (<= 20kg)", value=True)
-    if remove_outliers:
-        # 0보다 크고 20 이하인 것만 유지 (0은 데이터 없음, 20초과는 이상치로 간주)
-        adv_filtered_df = adv_filtered_df[(adv_filtered_df['weight_kg'] > 0) & (adv_filtered_df['weight_kg'] <= 20)]
-
 # KPI (Original Style)
 total_sales = filtered_df['결제금액(통합)'].sum()
 total_orders = len(filtered_df)
@@ -232,10 +224,11 @@ with tabs[5]:
 if adv_exists:
     # [Advanced] 상품/매출
     with tabs[6]:
-        st.header("🚀 Advanced: 상품 및 매출 실적 (이상치 제거됨)")
+        st.header("🚀 Advanced: 상품 및 매출 실적 (전체 데이터)")
         c_adv1, c_adv2 = st.columns(2)
         with c_adv1:
             st.subheader("📦 중량(kg)별 평균 매출")
+            # 여기서는 이상치 제어 안함 (전체 데이터)
             weight_avg = adv_filtered_df.groupby('weight_kg')['item_payment_amount'].mean().reset_index().sort_values('weight_kg')
             fig_a1 = px.bar(weight_avg, x='weight_kg', y='item_payment_amount', 
                             color='item_payment_amount', labels={'weight_kg': '중량 (kg)', 'item_payment_amount': '평균 매출(원)'},
@@ -249,17 +242,39 @@ if adv_exists:
                                 labels={'item_payment_amount': '총 매출(원)', 'margin': '총 마진(원)', 'quantity': '판매 수량'})
             st.plotly_chart(fig_a2, use_container_width=True)
         
-        st.subheader("⚖️ kg당 가격 분포 및 요일별 중량")
+        st.divider()
+        st.header("⚖️ kg당 가격 분포 및 요일별 중량 (이상치 제외)")
+        
+        # 분포 분석용 데이터 정제 (이상치 20kg 초과 제외)
+        dist_df = adv_filtered_df[(adv_filtered_df['weight_kg'] > 0) & (adv_filtered_df['weight_kg'] <= 20)].copy()
+        
+        # 세분화 필터
+        st.subheader("🔍 세분화 분석 필터")
+        seg_col1, seg_col2 = st.columns(2)
+        with seg_col1:
+            seg_target = st.selectbox("세분화 기준", ["전체", "category", "member_type", "region_1"], key="seg_target")
+        with seg_col2:
+            st.info("카테고리, 회원 유형, 지역별로 분포를 나누어 볼 수 있습니다.")
+
         c_adv3, c_adv4 = st.columns(2)
         with c_adv3:
-            st.plotly_chart(px.histogram(adv_filtered_df, x='price_per_kg', nbins=30, 
-                                         title="kg당 가격(Price per KG) 분포",
-                                         labels={'price_per_kg': 'kg당 가격(원)'}), use_container_width=True)
+            st.subheader("kg당 가격(Price per KG) 분포")
+            if seg_target == "전체":
+                fig_dist3 = px.histogram(dist_df, x='price_per_kg', nbins=30, labels={'price_per_kg': 'kg당 가격(원)'})
+            else:
+                fig_dist3 = px.histogram(dist_df, x='price_per_kg', color=seg_target, barmode='overlay', nbins=30, labels={'price_per_kg': 'kg당 가격(원)'})
+            st.plotly_chart(fig_dist3, use_container_width=True)
+            
         with c_adv4:
-            st.plotly_chart(px.box(adv_filtered_df, x='weekday', y='weight_kg', color='weekday',
-                                   category_orders={"weekday": ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']},
-                                   title="요일별 주문 중량 분포",
-                                   labels={'weekday': '요일', 'weight_kg': '중량 (kg)'}), use_container_width=True)
+            st.subheader("요일별 주문 중량 분포")
+            day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            if seg_target == "전체":
+                fig_dist4 = px.box(dist_df, x='weekday', y='weight_kg', color='weekday', 
+                                   category_orders={"weekday": day_order}, labels={'weekday': '요일', 'weight_kg': '중량 (kg)'})
+            else:
+                fig_dist4 = px.box(dist_df, x='weekday', y='weight_kg', color=seg_target,
+                                   category_orders={"weekday": day_order}, labels={'weekday': '요일', 'weight_kg': '중량 (kg)'})
+            st.plotly_chart(fig_dist4, use_container_width=True)
 
     # [Advanced] 마케팅/고객
     with tabs[7]:
