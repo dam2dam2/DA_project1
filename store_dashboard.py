@@ -286,14 +286,97 @@ if adv_exists:
         heat = adv_filtered_df.groupby(['weekday', 'time_slot']).size().unstack().reindex(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
         st.plotly_chart(px.imshow(heat, title="요일 x 시간대별 주문 히트맵"), use_container_width=True)
 
-    # [Advanced] 군집 분석
-    with tabs[8]:
-        st.header("🧬 Advanced: 고객 군집 분석 (K-means)")
-        cust_agg = adv_filtered_df.groupby('customer_id').agg({'item_payment_amount':'mean', 'weight_kg':'mean', 'order_id':'nunique'}).reset_index()
-        X = StandardScaler().fit_transform(cust_agg[['item_payment_amount', 'weight_kg', 'order_id']])
-        cust_agg['cluster'] = KMeans(n_clusters=4, random_state=42).fit_predict(X)
-        st.plotly_chart(px.scatter(cust_agg, x='item_payment_amount', y='weight_kg', color=cust_agg['cluster'].astype(str), size='order_id', title="Customer Segments"), use_container_width=True)
-        st.table(cust_agg.groupby('cluster')[['item_payment_amount', 'weight_kg', 'order_id']].mean())
+# 5. 클러스터링
+with tabs[8]:
+    st.header("🧬 Advanced: 다차원 군집 분석 (Clustering)")
+    
+    cluster_sub_tab1, cluster_sub_tab2 = st.tabs(["👥 고객 군집 (Persona)", "📦 상품 군집 (Product Mix)"])
+    
+    # 5.1 고객 클러스터링
+    with cluster_sub_tab1:
+        st.subheader("5.1 고객 군집 분석 (K-means)")
+        st.markdown("구매 금액, 중량, 빈도, 채널 수 및 회원 상태를 기반으로 고객을 분류합니다.")
+        
+        # 데이터 집계
+        cust_agg = adv_filtered_df.groupby('customer_id').agg({
+            'item_payment_amount': ['mean', 'sum'],
+            'weight_kg': 'mean',
+            'order_id': 'nunique',
+            'order_channel': 'nunique',
+            'member_type': 'first'
+        }).reset_index()
+        cust_agg.columns = ['customer_id', 'avg_payment', 'total_payment', 'avg_weight', 'frequency', 'channel_count', 'member_type']
+        
+        # 회원 여부 인코딩
+        cust_agg['is_member'] = (cust_agg['member_type'] == '회원').astype(int)
+        
+        features_cust = ['avg_payment', 'avg_weight', 'frequency', 'is_member', 'channel_count']
+        X_cust = StandardScaler().fit_transform(cust_agg[features_cust])
+        
+        # K-means
+        km_cust = KMeans(n_clusters=4, random_state=42)
+        cust_agg['cluster'] = km_cust.fit_predict(X_cust)
+        
+        # 시각화
+        c_cl1, c_cl2 = st.columns([2, 1])
+        with c_cl1:
+            fig_cust_cl = px.scatter_3d(cust_agg, x='avg_payment', y='avg_weight', z='frequency', 
+                                        color=cust_agg['cluster'].astype(str), size='channel_count',
+                                        hover_data=['customer_id'], title="고객 군집 3D 분포 (금액 x 중량 x 빈도)")
+            st.plotly_chart(fig_cust_cl, use_container_width=True)
+        with c_cl2:
+            st.write("**군집별 대표 지표**")
+            summary_cust = cust_agg.groupby('cluster')[features_cust].mean()
+            st.dataframe(summary_cust.style.format("{:.2f}").background_gradient(cmap='Greens'))
+            
+        st.info("""
+        **📌 고객 군집 해석 가이드:**
+        - **VIP 군집**: 빈도와 금액이 모두 높으며 다양한 채널을 이용하는 핵심 고객.
+        - **체리피커/단발성**: 낮은 빈도, 특정 이벤트 시에만 고유 중량 구매.
+        - **대용량 선호군**: 중량 지표가 월등히 높은 식당/단체 주문 가능성 고객.
+        """)
+
+    # 5.2 상품 클러스터링
+    with cluster_sub_tab2:
+        st.subheader("5.2 상품 군집 분석 (K-means)")
+        st.markdown("가격, 마진율, 중량, 판매량을 기반으로 상품을 분류하여 전략적 포트폴리오를 도출합니다.")
+        
+        # 데이터 집계
+        prod_agg = adv_filtered_df.groupby('product_name').agg({
+            'unit_price': 'mean',
+            'weight_kg': 'mean',
+            'margin_rate': 'mean',
+            'quantity': 'sum',
+            'is_promotion': 'max'
+        }).reset_index()
+        
+        features_prod = ['unit_price', 'weight_kg', 'margin_rate', 'quantity', 'is_promotion']
+        X_prod = StandardScaler().fit_transform(prod_agg[features_prod])
+        
+        km_prod = KMeans(n_clusters=4, random_state=42)
+        prod_agg['cluster'] = km_prod.fit_predict(X_prod)
+        
+        # 시각화
+        p_cl1, p_cl2 = st.columns([2, 1])
+        with p_cl1:
+            fig_prod_cl = px.scatter(prod_agg, x='quantity', y='margin_rate', size='unit_price',
+                                     color=prod_agg['cluster'].astype(str), hover_name='product_name',
+                                     labels={'quantity': '판매 수량', 'margin_rate': '평균 마진율'},
+                                     title="상품 군집 분포 (판매량 vs 마진율)")
+            st.plotly_chart(fig_prod_cl, use_container_width=True)
+        with p_cl2:
+            st.write("**군집별 특성 요약**")
+            summary_prod = prod_agg.groupby('cluster')[features_prod].mean()
+            st.dataframe(summary_prod.style.format("{:.2f}").background_gradient(cmap='Oranges'))
+            
+        # 군집 의미 부여
+        st.success("""
+        **📌 상품 포트폴리오 전략:**
+        - **Star (고마진-고판매)**: 적극적인 마케팅 및 재고 확보 필요.
+        - **Cash Cow (저마진-고판매)**: 점유율 유지 및 운영 효율화 필요.
+        - **Question Mark (고마진-저판매)**: 타겟 마케팅을 통한 인지도 상승 유도.
+        - **Problem Child (저마진-저판매)**: 상품 구성 변경 또는 단종 검토.
+        """)
 
     # [Advanced] 인사이트/제안
     with tabs[9]:
