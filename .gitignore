@@ -1,1 +1,17 @@
+# OS files
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Data
+#data/*.xlsx
+#preprocessed/*.csv

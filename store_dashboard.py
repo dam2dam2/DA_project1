@@ -286,97 +286,187 @@ if adv_exists:
         heat = adv_filtered_df.groupby(['weekday', 'time_slot']).size().unstack().reindex(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
         st.plotly_chart(px.imshow(heat, title="요일 x 시간대별 주문 히트맵"), use_container_width=True)
 
-    # 5. 클러스터링
+    # 5. 클러스터링 (Multi-Clustering Expansion)
     with tabs[8]:
-        st.header("🧬 Advanced: 다차원 군집 분석 (Clustering)")
+        st.header("🧬 Advanced: 다차원 군집 분석 (Multi-Clustering)")
+        st.markdown("`clustering.md` 지침에 따라 10가지 상이한 관점의 군집 분석을 제공합니다.")
         
-        cluster_sub_tab1, cluster_sub_tab2 = st.tabs(["👥 고객 군집 (Persona)", "📦 상품 군집 (Product Mix)"])
+        cluster_option = st.selectbox(
+            "📍 분석 유형 선택",
+            [
+                "3.1 고객 가치 군집 (Customer Value)",
+                "3.2 고객 행동 군집 (Customer Behavior)",
+                "3.3 가격 민감도 군집 (Price Sensitivity)",
+                "3.4 상품 수익성 군집 (Product Profitability)",
+                "3.5 중량/옵션 기반 상품 군집 (Weight & Option)",
+                "3.6 프로모션 효율 군집 (Promotion Effectiveness)",
+                "3.7 주문 패턴 군집 (Order Pattern)",
+                "3.8 채널 기반 주문 군집 (Channel-Based)",
+                "3.9 지역 소비 군집 (Regional Consumption)",
+                "3.10 리드타임 군집 (Delivery Lead-Time)"
+            ]
+        )
         
-        # 5.1 고객 클러스터링
-        with cluster_sub_tab1:
-            st.subheader("5.1 고객 군집 분석 (K-means)")
-            st.markdown("구매 금액, 중량, 빈도, 채널 수 및 회원 상태를 기반으로 고객을 분류합니다.")
+        st.divider()
+
+        # 공통 클러스터링 함수
+        def run_clustering(data, features, n_clusters=4, title="Cluster Plot"):
+            if data.empty:
+                st.warning("데이터가 부족하여 분석을 수행할 수 없습니다.")
+                return None
             
-            # 데이터 집계
-            cust_agg = adv_filtered_df.groupby('customer_id').agg({
-                'item_payment_amount': ['mean', 'sum'],
-                'weight_kg': 'mean',
-                'order_id': 'nunique',
-                'order_channel': 'nunique',
-                'member_type': 'first'
-            }).reset_index()
-            cust_agg.columns = ['customer_id', 'avg_payment', 'total_payment', 'avg_weight', 'frequency', 'channel_count', 'member_type']
-            
-            # 회원 여부 인코딩
-            cust_agg['is_member'] = (cust_agg['member_type'] == '회원').astype(int)
-            
-            features_cust = ['avg_payment', 'avg_weight', 'frequency', 'is_member', 'channel_count']
-            X_cust = StandardScaler().fit_transform(cust_agg[features_cust])
+            # 결측치 처리
+            df_cl = data.dropna(subset=features)
+            if len(df_cl) < n_clusters:
+                st.warning("데이터 레코드가 군집 수보다 적습니다.")
+                return None
+
+            # Scaling
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(df_cl[features])
             
             # K-means
-            km_cust = KMeans(n_clusters=4, random_state=42)
-            cust_agg['cluster'] = km_cust.fit_predict(X_cust)
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+            df_cl['cluster'] = kmeans.fit_predict(X_scaled)
             
             # 시각화
-            c_cl1, c_cl2 = st.columns([2, 1])
-            with c_cl1:
-                fig_cust_cl = px.scatter_3d(cust_agg, x='avg_payment', y='avg_weight', z='frequency', 
-                                            color=cust_agg['cluster'].astype(str), size='channel_count',
-                                            hover_data=['customer_id'], title="고객 군집 3D 분포 (금액 x 중량 x 빈도)")
-                st.plotly_chart(fig_cust_cl, use_container_width=True)
-            with c_cl2:
-                st.write("**군집별 대표 지표**")
-                summary_cust = cust_agg.groupby('cluster')[features_cust].mean()
-                st.dataframe(summary_cust.style.format("{:.2f}").background_gradient(cmap='Greens'))
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if len(features) >= 3:
+                    fig = px.scatter_3d(df_cl, x=features[0], y=features[1], z=features[2], 
+                                        color=df_cl['cluster'].astype(str), title=title, opacity=0.7)
+                else:
+                    fig = px.scatter(df_cl, x=features[0], y=features[1], 
+                                     color=df_cl['cluster'].astype(str), title=title)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.write("**군집별 평균 지표**")
+                summary = df_cl.groupby('cluster')[features].mean()
+                st.dataframe(summary.style.format("{:.2f}").background_gradient(cmap='YlGnBu'))
                 
-            st.info("""
-            **📌 고객 군집 해석 가이드:**
-            - **VIP 군집**: 빈도와 금액이 모두 높으며 다양한 채널을 이용하는 핵심 고객.
-            - **체리피커/단발성**: 낮은 빈도, 특정 이벤트 시에만 고유 중량 구매.
-            - **대용량 선호군**: 중량 지표가 월등히 높은 식당/단체 주문 가능성 고객.
-            """)
+            return df_cl
 
-        # 5.2 상품 클러스터링
-        with cluster_sub_tab2:
-            st.subheader("5.2 상품 군집 분석 (K-means)")
-            st.markdown("가격, 마진율, 중량, 판매량을 기반으로 상품을 분류하여 전략적 포트폴리오를 도출합니다.")
-            
-            # 데이터 집계
-            prod_agg = adv_filtered_df.groupby('product_name').agg({
-                'unit_price': 'mean',
-                'weight_kg': 'mean',
-                'margin_rate': 'mean',
-                'quantity': 'sum',
-                'is_promotion': 'max'
+        # 3.1 고객 가치 군집
+        if cluster_option.startswith("3.1"):
+            st.subheader("👥 고객 가치 군집 분석 (Customer Value)")
+            cust_val = adv_filtered_df.groupby('customer_id').agg({
+                'item_payment_amount': ['mean', 'sum'],
+                'weight_kg': 'mean'
             }).reset_index()
+            cust_val.columns = ['customer_id', 'avg_payment', 'total_payment', 'avg_weight']
+            run_clustering(cust_val, ['avg_payment', 'total_payment', 'avg_weight'], title="Value Clusters (Avg Pay x Total Pay x Avg Weight)")
+            st.info("**Persona**: VIP(고단가/대량), 일반(평균), 이탈위험(저단가/소량)")
+
+        # 3.2 고객 행동 군집
+        elif cluster_option.startswith("3.2"):
+            st.subheader("🕒 고객 행동 군집 분석 (Customer Behavior)")
+            cust_beh = adv_filtered_df.groupby('customer_id').agg({
+                'order_id': 'nunique',
+                'order_hour': 'mean',
+                'order_channel': 'nunique'
+            }).reset_index()
+            cust_beh.columns = ['customer_id', 'frequency', 'avg_hour', 'channel_count']
+            run_clustering(cust_beh, ['frequency', 'avg_hour', 'channel_count'], title="Behavior Clusters (Freq x Hour x Channel)")
+            st.info("**Insight**: 특정 시간대(예: 야간) 집중 구매군과 다채널 이용 충성 고객군 식별")
+
+        # 3.3 가격 민감도 군집
+        elif cluster_option.startswith("3.3"):
+            st.subheader("🎫 가격 민감도 군집 분석 (Price Sensitivity)")
+            # 주문단위 쿠폰/포인트 비율 계산
+            orders_subset = adv_filtered_df.groupby('order_id').first().reset_index()
+            orders_subset['coupon_ratio'] = orders_subset['coupon_used'] / orders_subset['total_payment_amount'].replace(0, 1)
+            orders_subset['point_ratio'] = orders_subset['point_used'] / orders_subset['total_payment_amount'].replace(0, 1)
             
-            features_prod = ['unit_price', 'weight_kg', 'margin_rate', 'quantity', 'is_promotion']
-            X_prod = StandardScaler().fit_transform(prod_agg[features_prod])
-            
-            km_prod = KMeans(n_clusters=4, random_state=42)
-            prod_agg['cluster'] = km_prod.fit_predict(X_prod)
-            
-            # 시각화
-            p_cl1, p_cl2 = st.columns([2, 1])
-            with p_cl1:
-                fig_prod_cl = px.scatter(prod_agg, x='quantity', y='margin_rate', size='unit_price',
-                                         color=prod_agg['cluster'].astype(str), hover_name='product_name',
-                                         labels={'quantity': '판매 수량', 'margin_rate': '평균 마진율'},
-                                         title="상품 군집 분포 (판매량 vs 마진율)")
-                st.plotly_chart(fig_prod_cl, use_container_width=True)
-            with p_cl2:
-                st.write("**군집별 특성 요약**")
-                summary_prod = prod_agg.groupby('cluster')[features_prod].mean()
-                st.dataframe(summary_prod.style.format("{:.2f}").background_gradient(cmap='Oranges'))
-                
-            # 군집 의미 부여
-            st.success("""
-            **📌 상품 포트폴리오 전략:**
-            - **Star (고마진-고판매)**: 적극적인 마케팅 및 재고 확보 필요.
-            - **Cash Cow (저마진-고판매)**: 점유율 유지 및 운영 효율화 필요.
-            - **Question Mark (고마진-저판매)**: 타겟 마케팅을 통한 인지도 상승 유도.
-            - **Problem Child (저마진-저판매)**: 상품 구성 변경 또는 단종 검토.
-            """)
+            cust_sens = orders_subset.groupby('customer_id').agg({
+                'coupon_ratio': 'mean',
+                'point_ratio': 'mean',
+                'total_payment_amount': 'mean'
+            }).reset_index()
+            cust_sens.columns = ['customer_id', 'coupon_ratio', 'point_ratio', 'avg_payment']
+            run_clustering(cust_sens, ['coupon_ratio', 'point_ratio', 'avg_payment'], title="Sensitivity Clusters")
+            st.success("**Strategy**: 할인 반응도가 높은 군집에는 전용 쿠폰 발송, 저민감 군집에는 프리미엄 상품 추천")
+
+        # 3.4 상품 수익성 군집
+        elif cluster_option.startswith("3.4"):
+            st.subheader("💰 상품 수익성 군집 분석 (Product Profitability)")
+            prod_prof = adv_filtered_df.groupby('product_name').agg({
+                'unit_price': 'mean',
+                'margin': 'mean',
+                'margin_rate': 'mean',
+                'quantity': 'sum'
+            }).reset_index()
+            prod_prof.columns = ['product_name', 'avg_price', 'avg_margin', 'avg_margin_rate', 'total_qty']
+            run_clustering(prod_prof, ['avg_price', 'avg_margin', 'total_qty'], title="Profitability Clusters")
+            st.warning("**Action**: 고마진/저판매 상품의 노출 확대, 저마진/고판매 상품의 운영 효율화")
+
+        # 3.5 중량/옵션 기반 상품 군집
+        elif cluster_option.startswith("3.5"):
+            st.subheader("⚖️ 중량 및 옵션 기반 상품 군집 (Weight & Option)")
+            # option_type encoding
+            prod_opt = adv_filtered_df.groupby('product_name').agg({
+                'weight_kg': 'mean',
+                'price_per_kg': 'mean',
+                'option_type': 'first'
+            }).reset_index()
+            prod_opt['opt_code'] = pd.factorize(prod_opt['option_type'])[0]
+            run_clustering(prod_opt, ['weight_kg', 'price_per_kg', 'opt_code'], title="Option-Weight Clusters")
+
+        # 3.6 프로모션 효율 군집 (임시: is_promotion 여부에 따른 상품별 매출 변화)
+        elif cluster_option.startswith("3.6"):
+            st.subheader("📢 프로모션 효율 군집 분석 (Promotion Effectiveness)")
+            prod_promo = adv_filtered_df.groupby(['product_name', 'is_promotion']).agg({
+                'quantity': 'sum',
+                'item_payment_amount': 'sum'
+            }).unstack(fill_value=0).reset_index()
+            # 복잡한 변수 생성 생략하고 단순 판매량/금액으로 군집
+            prod_promo.columns = ['product_name', 'qty_no_promo', 'qty_promo', 'sales_no_promo', 'sales_promo']
+            run_clustering(prod_promo, ['qty_promo', 'sales_promo', 'qty_no_promo'], title="Promo Response Clusters")
+
+        # 3.7 주문 패턴 군집
+        elif cluster_option.startswith("3.7"):
+            st.subheader("📅 주문 패턴 군집 분석 (Order Pattern)")
+            ord_pat = adv_filtered_df.groupby('order_id').agg({
+                'order_hour': 'first',
+                'total_payment_amount': 'first',
+                'quantity': 'sum'
+            }).reset_index()
+            run_clustering(ord_pat, ['order_hour', 'total_payment_amount', 'quantity'], title="Order Patterns")
+
+        # 3.8 채널 기반 주문 군집
+        elif cluster_option.startswith("3.8"):
+            st.subheader("🌐 채널 기반 주문 군집 분석 (Channel-Based)")
+            adv_filtered_df['chan_code'] = pd.factorize(adv_filtered_df['order_channel'])[0]
+            chan_clus = adv_filtered_df.groupby('order_id').agg({
+                'chan_code': 'first',
+                'total_payment_amount': 'first',
+                'weight_kg': 'mean'
+            }).reset_index()
+            run_clustering(chan_clus, ['chan_code', 'total_payment_amount', 'weight_kg'], title="Channel-Weight Clusters")
+
+        # 3.9 지역 소비 군집
+        elif cluster_option.startswith("3.9"):
+            st.subheader("📍 지역 소비 군집 분석 (Regional Consumption)")
+            adv_filtered_df['reg_code'] = pd.factorize(adv_filtered_df['region_1'])[0]
+            reg_clus = adv_filtered_df.groupby('customer_id').agg({
+                'reg_code': 'first',
+                'weight_kg': 'mean',
+                'item_payment_amount': 'mean'
+            }).reset_index()
+            run_clustering(reg_clus, ['reg_code', 'weight_kg', 'item_payment_amount'], title="Regional Segments")
+
+        # 3.10 리드타임 군집
+        elif cluster_option.startswith("3.10"):
+            st.subheader("⏱️ 리드타임 및 운영 군집 (Delivery Lead-Time)")
+            # 리드타임 계산: 배송준비 - 주문일
+            time_df = adv_filtered_df.groupby('order_id').first().reset_index()
+            if 'delivery_ready_datetime' in time_df.columns:
+                time_df['lead_time_hrs'] = (pd.to_datetime(time_df['delivery_ready_datetime']) - pd.to_datetime(time_df['order_datetime'])).dt.total_seconds() / 3600
+                time_df = time_df[time_df['lead_time_hrs'] >= 0].fillna(0)
+                run_clustering(time_df, ['lead_time_hrs', 'total_payment_amount'], title="Lead-Time vs Amount")
+                st.info("**Note**: 리드타임이 긴 주문의 고객 불만 관리 및 운영 최적화 지표로 활용")
+            else:
+                st.error("리드타임 분석을 위한 날짜 데이터가 부족합니다.")
 
     # [Advanced] 인사이트/제안
     with tabs[9]:
