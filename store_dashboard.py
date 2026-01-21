@@ -286,187 +286,134 @@ if adv_exists:
         heat = adv_filtered_df.groupby(['weekday', 'time_slot']).size().unstack().reindex(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
         st.plotly_chart(px.imshow(heat, title="요일 x 시간대별 주문 히트맵"), use_container_width=True)
 
-    # 5. 클러스터링 (Multi-Clustering Expansion)
+    # 5. 통합 군집 분석 (Integrated Clustering Analysis)
     with tabs[8]:
-        st.header("🧬 Advanced: 다차원 군집 분석 (Multi-Clustering)")
-        st.markdown("`clustering.md` 지침에 따라 10가지 상이한 관점의 군집 분석을 제공합니다.")
+        st.header("🧬 Advanced: 통합 군집 분석 (Integrated Perspective)")
+        st.markdown("`clustering.md` 지침에 따라 **고객 가치**를 핵심 축으로 상호 연결된 분석을 수행합니다.")
         
-        cluster_option = st.selectbox(
-            "📍 분석 유형 선택",
-            [
-                "3.1 고객 가치 군집 (Customer Value)",
-                "3.2 고객 행동 군집 (Customer Behavior)",
-                "3.3 가격 민감도 군집 (Price Sensitivity)",
-                "3.4 상품 수익성 군집 (Product Profitability)",
-                "3.5 중량/옵션 기반 상품 군집 (Weight & Option)",
-                "3.6 프로모션 효율 군집 (Promotion Effectiveness)",
-                "3.7 주문 패턴 군집 (Order Pattern)",
-                "3.8 채널 기반 주문 군집 (Channel-Based)",
-                "3.9 지역 소비 군집 (Regional Consumption)",
-                "3.10 리드타임 군집 (Delivery Lead-Time)"
-            ]
-        )
+        # --- [Step 0] 공통 유틸리티 및 PCA ---
+        from sklearn.decomposition import PCA
         
-        st.divider()
-
-        # 공통 클러스터링 함수
-        def run_clustering(data, features, n_clusters=4, title="Cluster Plot"):
-            if data.empty:
-                st.warning("데이터가 부족하여 분석을 수행할 수 없습니다.")
-                return None
+        def run_clustering_integrated(data, features, n_clusters=4, title="Cluster Plot", show_2d=False):
+            if data.empty: return None
+            df_cl = data.dropna(subset=features).copy()
+            if len(df_cl) < n_clusters: return None
             
-            # 결측치 처리
-            df_cl = data.dropna(subset=features)
-            if len(df_cl) < n_clusters:
-                st.warning("데이터 레코드가 군집 수보다 적습니다.")
-                return None
-
-            # Scaling
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(df_cl[features])
-            
-            # K-means
             kmeans = KMeans(n_clusters=n_clusters, random_state=42)
             df_cl['cluster'] = kmeans.fit_predict(X_scaled)
             
-            # 시각화
             col1, col2 = st.columns([2, 1])
             with col1:
-                if len(features) >= 3:
+                # 2D vs 3D 토글 처리
+                if show_2d and len(features) > 2:
+                    pca = PCA(n_components=2)
+                    X_pca = pca.fit_transform(X_scaled)
+                    df_cl['pca1'] = X_pca[:, 0]
+                    df_cl['pca2'] = X_pca[:, 1]
+                    fig = px.scatter(df_cl, x='pca1', y='pca2', color='cluster', 
+                                     title=f"{title} (PCA 2D Projection)", opacity=0.7)
+                elif len(features) >= 3:
                     fig = px.scatter_3d(df_cl, x=features[0], y=features[1], z=features[2], 
-                                        color=df_cl['cluster'].astype(str), title=title, opacity=0.7)
+                                        color='cluster', title=title, opacity=0.7)
                 else:
                     fig = px.scatter(df_cl, x=features[0], y=features[1], 
-                                     color=df_cl['cluster'].astype(str), title=title)
+                                     color='cluster', title=title)
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
                 st.write("**군집별 평균 지표**")
                 summary = df_cl.groupby('cluster')[features].mean()
                 st.dataframe(summary.style.format("{:.2f}").background_gradient(cmap='YlGnBu'))
-                
             return df_cl
 
-        # 3.1 고객 가치 군집
-        if cluster_option.startswith("3.1"):
-            st.subheader("👥 고객 가치 군집 분석 (Customer Value)")
-            cust_val = adv_filtered_df.groupby('customer_id').agg({
-                'item_payment_amount': ['mean', 'sum'],
-                'weight_kg': 'mean'
-            }).reset_index()
-            cust_val.columns = ['customer_id', 'avg_payment', 'total_payment', 'avg_weight']
-            run_clustering(cust_val, ['avg_payment', 'total_payment', 'avg_weight'], title="Value Clusters (Avg Pay x Total Pay x Avg Weight)")
-            st.info("**Persona**: VIP(고단가/대량), 일반(평균), 이탈위험(저단가/소량)")
-
-        # 3.2 고객 행동 군집
-        elif cluster_option.startswith("3.2"):
-            st.subheader("🕒 고객 행동 군집 분석 (Customer Behavior)")
-            cust_beh = adv_filtered_df.groupby('customer_id').agg({
-                'order_id': 'nunique',
-                'order_hour': 'mean',
-                'order_channel': 'nunique'
-            }).reset_index()
-            cust_beh.columns = ['customer_id', 'frequency', 'avg_hour', 'channel_count']
-            run_clustering(cust_beh, ['frequency', 'avg_hour', 'channel_count'], title="Behavior Clusters (Freq x Hour x Channel)")
-            st.info("**Insight**: 특정 시간대(예: 야간) 집중 구매군과 다채널 이용 충성 고객군 식별")
-
-        # 3.3 가격 민감도 군집
-        elif cluster_option.startswith("3.3"):
-            st.subheader("🎫 가격 민감도 군집 분석 (Price Sensitivity)")
-            # 주문단위 쿠폰/포인트 비율 계산
-            orders_subset = adv_filtered_df.groupby('order_id').first().reset_index()
-            orders_subset['coupon_ratio'] = orders_subset['coupon_used'] / orders_subset['total_payment_amount'].replace(0, 1)
-            orders_subset['point_ratio'] = orders_subset['point_used'] / orders_subset['total_payment_amount'].replace(0, 1)
+        # --- [Step 1] Core Axis: Customer Value Segmentation ---
+        st.subheader("1️⃣ 핵심 고객 세그먼트 (Core Axis)")
+        cust_core = adv_filtered_df.groupby('customer_id').agg({
+            'total_payment_amount': 'sum',
+            'item_payment_amount': 'mean',
+            'order_id': 'nunique',
+            'weight_kg': 'mean'
+        }).reset_index()
+        cust_core.columns = ['customer_id', 'total_payment', 'avg_payment', 'frequency', 'avg_weight']
+        
+        # 시각화 모드 선택
+        viz_mode = st.radio("시각화 모드", ["3D Perspective", "2D PCA Projection"], horizontal=True, key="core_viz")
+        
+        df_cust_clustered = run_clustering_integrated(
+            cust_core, ['total_payment', 'avg_payment', 'frequency', 'avg_weight'], 
+            n_clusters=4, title="Customer Value Clusters", show_2d=(viz_mode=="2D PCA Projection")
+        )
+        
+        if df_cust_clustered is not None:
+            # --- [Step 2] Multi-Clustering Extensions ---
+            st.divider()
+            st.subheader("2️⃣ 멀티 관점 확장 및 교차 분석")
             
-            cust_sens = orders_subset.groupby('customer_id').agg({
-                'coupon_ratio': 'mean',
-                'point_ratio': 'mean',
-                'total_payment_amount': 'mean'
-            }).reset_index()
-            cust_sens.columns = ['customer_id', 'coupon_ratio', 'point_ratio', 'avg_payment']
-            run_clustering(cust_sens, ['coupon_ratio', 'point_ratio', 'avg_payment'], title="Sensitivity Clusters")
-            st.success("**Strategy**: 할인 반응도가 높은 군집에는 전용 쿠폰 발송, 저민감 군집에는 프리미엄 상품 추천")
+            ext_tab1, ext_tab2, ext_tab3 = st.tabs(["🎫 할인 민감도", "🌐 획득 채널", "🕒 주문 패턴"])
+            
+            with ext_tab1:
+                st.markdown("**고객 가치 x 할인 반응도 교차 분석**")
+                # 할인 데이터 매핑
+                orders_sens = adv_filtered_df.groupby('order_id').first().reset_index()
+                orders_sens['coupon_ratio'] = orders_sens['coupon_used'] / orders_sens['total_payment_amount'].replace(0, 1)
+                orders_sens['point_ratio'] = orders_sens['point_used'] / orders_sens['total_payment_amount'].replace(0, 1)
+                cust_sens = orders_sens.groupby('customer_id').agg({'coupon_ratio':'mean', 'point_ratio':'mean'}).reset_index()
+                
+                # 가치 군집 정보 병합
+                merged_sens = pd.merge(cust_sens, df_cust_clustered[['customer_id', 'cluster']], on='customer_id')
+                fig_sens = px.box(merged_sens, x='cluster', y='coupon_ratio', color='cluster', points="all", title="고객 군집별 쿠폰 사용 비중")
+                st.plotly_chart(fig_sens, use_container_width=True)
+                st.info("💡 **인사이트**: 고가치 고객(VIP) 군집의 할인 민감도가 낮다면 프리미엄 서비스 집중, 높다면 VIP 전용 쿠폰 전략 유효")
 
-        # 3.4 상품 수익성 군집
-        elif cluster_option.startswith("3.4"):
-            st.subheader("💰 상품 수익성 군집 분석 (Product Profitability)")
-            prod_prof = adv_filtered_df.groupby('product_name').agg({
-                'unit_price': 'mean',
+            with ext_tab2:
+                st.markdown("**고객 가치 x 획득 채널 교차 분석**")
+                cust_chan = adv_filtered_df.groupby(['customer_id', 'order_channel']).size().reset_index(name='count')
+                merged_chan = pd.merge(cust_chan, df_cust_clustered[['customer_id', 'cluster']], on='customer_id')
+                chan_dist = merged_chan.groupby(['cluster', 'order_channel']).size().unstack(fill_value=0)
+                chan_dist_norm = chan_dist.div(chan_dist.sum(axis=1), axis=0) * 100
+                st.plotly_chart(px.bar(chan_dist_norm.reset_index().melt(id_vars='cluster'), x='cluster', y='value', color='order_channel', 
+                                       title="군집별 유입 채널 비중 (%)", barmode='stack'), use_container_width=True)
+
+            with ext_tab3:
+                st.markdown("**고객 가치 x 시간대별 구매 패턴**")
+                merged_time = pd.merge(adv_filtered_df, df_cust_clustered[['customer_id', 'cluster']], on='customer_id')
+                time_heat = merged_time.groupby(['cluster', 'time_slot']).size().unstack(fill_value=0)
+                st.plotly_chart(px.imshow(time_heat, title="고객 군집 x 유입 시간대 Heatmap", text_auto=True), use_container_width=True)
+
+            # --- [Step 3] Product Profitability & Matrix ---
+            st.divider()
+            st.subheader("3️⃣ 상품 수익성 및 고객-상품 매트릭스")
+            
+            prod_agg = adv_filtered_df.groupby('product_name').agg({
                 'margin': 'mean',
                 'margin_rate': 'mean',
                 'quantity': 'sum'
             }).reset_index()
-            prod_prof.columns = ['product_name', 'avg_price', 'avg_margin', 'avg_margin_rate', 'total_qty']
-            run_clustering(prod_prof, ['avg_price', 'avg_margin', 'total_qty'], title="Profitability Clusters")
-            st.warning("**Action**: 고마진/저판매 상품의 노출 확대, 저마진/고판매 상품의 운영 효율화")
+            prod_agg.columns = ['product_name', 'avg_margin', 'margin_rate', 'sales_volume']
+            df_prod_clustered = run_clustering_integrated(prod_agg, ['avg_margin', 'margin_rate', 'sales_volume'], n_clusters=4, title="Product Profitability Clusters")
+            
+            if df_prod_clustered is not None:
+                st.markdown("**고객 군집 × 상품 군집 매트릭스**")
+                # 고객-상품 구매 관계 생성
+                cust_prod_rel = pd.merge(adv_filtered_df[['customer_id', 'product_name']], df_cust_clustered[['customer_id', 'cluster']], on='customer_id')
+                cust_prod_rel = pd.merge(cust_prod_rel, df_prod_clustered[['product_name', 'cluster']], on='product_name', suffixes=('_cust', '_prod'))
+                
+                matrix = cust_prod_rel.groupby(['cluster_cust', 'cluster_prod']).size().unstack(fill_value=0)
+                st.plotly_chart(px.imshow(matrix, labels=dict(x="상품 군집", y="고객 군집"), title="Customer x Product Matrix (구매 건수)", text_auto=True), use_container_width=True)
 
-        # 3.5 중량/옵션 기반 상품 군집
-        elif cluster_option.startswith("3.5"):
-            st.subheader("⚖️ 중량 및 옵션 기반 상품 군집 (Weight & Option)")
-            # option_type encoding
-            prod_opt = adv_filtered_df.groupby('product_name').agg({
-                'weight_kg': 'mean',
-                'price_per_kg': 'mean',
-                'option_type': 'first'
-            }).reset_index()
-            prod_opt['opt_code'] = pd.factorize(prod_opt['option_type'])[0]
-            run_clustering(prod_opt, ['weight_kg', 'price_per_kg', 'opt_code'], title="Option-Weight Clusters")
-
-        # 3.6 프로모션 효율 군집 (임시: is_promotion 여부에 따른 상품별 매출 변화)
-        elif cluster_option.startswith("3.6"):
-            st.subheader("📢 프로모션 효율 군집 분석 (Promotion Effectiveness)")
-            prod_promo = adv_filtered_df.groupby(['product_name', 'is_promotion']).agg({
-                'quantity': 'sum',
-                'item_payment_amount': 'sum'
-            }).unstack(fill_value=0).reset_index()
-            # 복잡한 변수 생성 생략하고 단순 판매량/금액으로 군집
-            prod_promo.columns = ['product_name', 'qty_no_promo', 'qty_promo', 'sales_no_promo', 'sales_promo']
-            run_clustering(prod_promo, ['qty_promo', 'sales_promo', 'qty_no_promo'], title="Promo Response Clusters")
-
-        # 3.7 주문 패턴 군집
-        elif cluster_option.startswith("3.7"):
-            st.subheader("📅 주문 패턴 군집 분석 (Order Pattern)")
-            ord_pat = adv_filtered_df.groupby('order_id').agg({
-                'order_hour': 'first',
-                'total_payment_amount': 'first',
-                'quantity': 'sum'
-            }).reset_index()
-            run_clustering(ord_pat, ['order_hour', 'total_payment_amount', 'quantity'], title="Order Patterns")
-
-        # 3.8 채널 기반 주문 군집
-        elif cluster_option.startswith("3.8"):
-            st.subheader("🌐 채널 기반 주문 군집 분석 (Channel-Based)")
-            adv_filtered_df['chan_code'] = pd.factorize(adv_filtered_df['order_channel'])[0]
-            chan_clus = adv_filtered_df.groupby('order_id').agg({
-                'chan_code': 'first',
-                'total_payment_amount': 'first',
-                'weight_kg': 'mean'
-            }).reset_index()
-            run_clustering(chan_clus, ['chan_code', 'total_payment_amount', 'weight_kg'], title="Channel-Weight Clusters")
-
-        # 3.9 지역 소비 군집
-        elif cluster_option.startswith("3.9"):
-            st.subheader("📍 지역 소비 군집 분석 (Regional Consumption)")
-            adv_filtered_df['reg_code'] = pd.factorize(adv_filtered_df['region_1'])[0]
-            reg_clus = adv_filtered_df.groupby('customer_id').agg({
-                'reg_code': 'first',
-                'weight_kg': 'mean',
-                'item_payment_amount': 'mean'
-            }).reset_index()
-            run_clustering(reg_clus, ['reg_code', 'weight_kg', 'item_payment_amount'], title="Regional Segments")
-
-        # 3.10 리드타임 군집
-        elif cluster_option.startswith("3.10"):
-            st.subheader("⏱️ 리드타임 및 운영 군집 (Delivery Lead-Time)")
-            # 리드타임 계산: 배송준비 - 주문일
-            time_df = adv_filtered_df.groupby('order_id').first().reset_index()
-            if 'delivery_ready_datetime' in time_df.columns:
-                time_df['lead_time_hrs'] = (pd.to_datetime(time_df['delivery_ready_datetime']) - pd.to_datetime(time_df['order_datetime'])).dt.total_seconds() / 3600
-                time_df = time_df[time_df['lead_time_hrs'] >= 0].fillna(0)
-                run_clustering(time_df, ['lead_time_hrs', 'total_payment_amount'], title="Lead-Time vs Amount")
-                st.info("**Note**: 리드타임이 긴 주문의 고객 불만 관리 및 운영 최적화 지표로 활용")
-            else:
-                st.error("리드타임 분석을 위한 날짜 데이터가 부족합니다.")
+            # --- [Final] Strategic Recommendations ---
+            st.divider()
+            st.subheader("🚀 4️⃣ 전략적 실행 제언 (Strategic Recommendations)")
+            
+            rec_data = [
+                {"세그먼트 조합": "VIP 고객 x 고마진 상품", "실행 전략": "프리미엄 멤버십 전용 큐레이션 및 선결제 혜택", "기대 효과": "LTV 극대화 및 고마진 상품 매출 비중 확대"},
+                {"세그먼트 조합": "신규/일반 고객 x 베스트셀러", "실행 전략": "첫 구매 감사 쿠폰 및 연관 상품 추천(Cross-sell)", "기대 효과": "재구매율(Retention) 향상 및 충성 고객 전환"},
+                {"세그먼트 조합": "할인 민감군 x 이벤트 상품", "실행 전략": "타임 세일 및 한정 수량 프로모션 타겟팅", "기대 효과": "재고 순환 속도 가속화 및 집객력 강화"},
+                {"세그먼트 조합": "야간 구매군 x 모바일 채널", "실행 전략": "야간 전용 앱 푸시 및 모바일 전용 할인권", "기대 효과": "특정 시간대 점유율 확보 및 앱 활성 지표 개선"}
+            ]
+            st.table(pd.DataFrame(rec_data))
 
     # [Advanced] 인사이트/제안
     with tabs[9]:
