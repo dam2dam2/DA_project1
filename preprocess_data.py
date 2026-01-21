@@ -106,8 +106,8 @@ def preprocess_data(input_file, output_dir):
     items['unit_price'] = np.where(items['주문수량'] > 0, items['결제금액(상품별)'] / items['주문수량'], 0)
     items['supply_price'] = np.where(items['주문수량'] > 0, items['공급가'] / items['주문수량'], 0)
     
-    items = items[['주문번호', '상품코드', 'clean_product_name', 'option_type', 'weight_kg', '주문수량', 'unit_price', 'supply_price', 'margin', 'margin_rate', 'is_promotion', 'price_per_kg']]
-    items.columns = ['order_id', 'product_code', 'product_name', 'option_type', 'weight_kg', 'quantity', 'unit_price', 'supply_price', 'margin', 'margin_rate', 'is_promotion', 'price_per_kg']
+    items = items[['주문번호', '상품코드', 'clean_product_name', 'option_type', 'weight_kg', '주문수량', '결제금액(상품별)', 'unit_price', 'supply_price', 'margin', 'margin_rate', 'is_promotion', 'price_per_kg']]
+    items.columns = ['order_id', 'product_code', 'product_name', 'option_type', 'weight_kg', 'quantity', 'item_payment_amount', 'unit_price', 'supply_price', 'margin', 'margin_rate', 'is_promotion', 'price_per_kg']
     
     # Customers
     customers = df[['customer_id', '회원구분', 'region_1', 'region_2']].drop_duplicates('customer_id')

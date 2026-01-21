@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 # --- 페이지 설정 ---
 st.set_page_config(
     page_title="Unified E-commerce EDA Dashboard",
-    page_icon="�",
+    page_icon="📊",
     layout="wide"
 )
 
@@ -66,7 +66,7 @@ df_raw['day_name'] = df_raw['주문일'].dt.day_name()
 st.title("📊 Enterprise E-commerce Analytics Dashboard")
 st.markdown(f"**원본 데이터**: `{RAW_DATA_PATH}` | **총 레코드**: {len(df_raw):,}건")
 
-st.sidebar.header("� 글로벌 필터")
+st.sidebar.header("🔍 글로벌 필터")
 start_date = df_raw['주문일'].min()
 end_date = df_raw['주문일'].max()
 
@@ -101,7 +101,7 @@ k4.metric("취소 금액", f"{cancel_sales:,.0f}원", delta=f"-{(cancel_sales/to
 st.divider()
 
 # --- 5. Tabs 구성 ---
-tab_names = ["📈 매출 트렌드", "� 상품 분석", "� 고객/채널", "📅 특정 날짜 분석", "🧩 옵션 분석", "� 데이터 상세"]
+tab_names = ["📈 매출 트렌드", "📦 상품 분석", "👥 고객/채널", "📅 특정 날짜 분석", "🧩 옵션 분석", "📋 데이터 상세"]
 if adv_exists:
     tab_names += ["🚀 [Advanced] 상품/매출", "🌐 [Advanced] 마케팅/고객", "🧬 [Advanced] 군집 분석", "💡 인사이트/제안"]
 
