@@ -4,3 +4,4 @@ plotly==6.5.1
 streamlit==1.42.0
 numpy
 scikit-learn
+matplotlib
