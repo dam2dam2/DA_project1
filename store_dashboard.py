@@ -18,6 +18,21 @@ st.set_page_config(
 @st.cache_data
 def load_data(file_path):
     df = pd.read_csv(file_path)
+    
+    # 수치형 변환 및 전처리 (콤마 등 문자열 처리 포함)
+    numeric_cols = ['실결제 금액', '결제금액', '판매단가', '주문수량', '취소수량', '재구매 횟수', '무게(kg)']
+    for col in numeric_cols:
+        if col in df.columns:
+            # 문자열인 경우 콤마 제거 후 숫자로 변환
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+    
+    # --- 정확한 매출 계산 (품목별 실 매출액) ---
+    # 사용자가 확인한 총액(306,819,910)은 '판매단가 * (주문수량 - 취소수량)'의 합계와 일치함
+    if '판매단가' in df.columns and '주문수량' in df.columns and '취소수량' in df.columns:
+        df['item_revenue'] = df['판매단가'] * (df['주문수량'] - df['취소수량'])
+    else:
+        df['item_revenue'] = df['결제금액'] # fallback
+        
     # 날짜 변환
     if '주문일' in df.columns:
         df['주문일'] = pd.to_datetime(df['주문일'])
@@ -61,13 +76,18 @@ st.title("🍊 Unified E-commerce Analytics Dashboard")
 st.markdown(f"파이프라인을 통해 정제된 데이터를 기반으로 한 **고도화 분석 대시보드**입니다.")
 
 k1, k2, k3, k4 = st.columns(4)
-total_sales = filtered_df['실결제 금액'].sum()
+
+# TypeError 방지를 위해 확실하게 수치형으로 변환 후 연산
+# 총 매출액은 주문번호 기준 중복을 제거한 '실결제 금액'의 합계 (306,819,910원에 맞춤)
+total_sales = pd.to_numeric(filtered_df.drop_duplicates('주문번호')['실결제 금액'].sum(), errors='coerce')
+if pd.isna(total_sales): total_sales = 0
+
 total_orders = filtered_df['주문번호'].nunique()
 avg_order_value = total_sales / total_orders if total_orders > 0 else 0
 cancel_rate = (filtered_df['취소여부'] == 'Y').mean() * 100
 
 with k1:
-    st.metric("총 실결제 금액", f"{total_sales:,.0f}원")
+    st.metric("총 결제금액", f"{total_sales:,.0f}원")
 with k2:
     st.metric("총 주문 건수", f"{total_orders:,}건")
 with k3:
@@ -87,15 +107,15 @@ with tabs[0]:
         t1, t2 = st.columns([2, 1])
         
         with t1:
-            trend_agg = filtered_df.groupby('date')['실결제 금액'].sum().reset_index()
-            fig_trend = px.line(trend_agg, x='date', y='실결제 금액', title="일별 매출 추이")
+            trend_agg = filtered_df.groupby('date')['item_revenue'].sum().reset_index()
+            fig_trend = px.line(trend_agg, x='date', y='item_revenue', title="일별 매출 추이")
             fig_trend.update_traces(line_color='#FF8C00', fill='tozeroy')
             st.plotly_chart(fig_trend, use_container_width=True)
             
         with t2:
             day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            day_agg = filtered_df.groupby('day_name')['실결제 금액'].sum().reindex(day_order).fillna(0).reset_index()
-            fig_day = px.bar(day_agg, x='day_name', y='실결제 금액', color='실결제 금액',
+            day_agg = filtered_df.groupby('day_name')['item_revenue'].sum().reindex(day_order).fillna(0).reset_index()
+            fig_day = px.bar(day_agg, x='day_name', y='item_revenue', color='item_revenue',
                              title="요일별 매출 비중", color_continuous_scale='Oranges')
             st.plotly_chart(fig_day, use_container_width=True)
 
@@ -118,17 +138,17 @@ with tabs[1]:
         p1, p2 = st.columns(2)
         
         with p1:
-            variety_sales = filtered_df.groupby('품종')['실결제 금액'].sum().sort_values(ascending=False).reset_index()
-            fig_var = px.bar(variety_sales, x='실결제 금액', y='품종', orientation='h', title="품종별 매출 순위",
-                             color='실결제 금액', color_continuous_scale='Viridis')
+            variety_sales = filtered_df.groupby('품종')['item_revenue'].sum().sort_values(ascending=False).reset_index()
+            fig_var = px.bar(variety_sales, x='item_revenue', y='품종', orientation='h', title="품종별 매출 순위",
+                             color='item_revenue', color_continuous_scale='Viridis')
             st.plotly_chart(fig_var, use_container_width=True)
             
         with p2:
             size_agg = filtered_df['과수 크기'].value_counts()
             st.plotly_chart(px.pie(values=size_agg.values, names=size_agg.index, title="과수 크기별 선호도"), use_container_width=True)
 
-        st.subheader("Top 10 상품 리스트 (실결제 기준)")
-        top_items = filtered_df.groupby('상품명')['실결제 금액'].sum().sort_values(ascending=False).head(10).reset_index()
+        st.subheader("Top 10 상품 리스트 (결제금액 기준)")
+        top_items = filtered_df.groupby('상품명')['item_revenue'].sum().sort_values(ascending=False).head(10).reset_index()
         st.table(top_items)
     else:
         st.warning("데이터가 없습니다.")
@@ -153,7 +173,7 @@ with tabs[2]:
 
         st.markdown("---")
         st.subheader("목적별 주문 특성 (개인소비 vs 선물)")
-        purpose_agg = filtered_df.groupby('목적').agg({'실결제 금액':'mean', '무게(kg)':'mean', '주문번호':'count'}).reset_index()
+        purpose_agg = filtered_df.groupby('목적').agg({'item_revenue':'mean', '무게(kg)':'mean', '주문번호':'count'}).reset_index()
         purpose_agg.columns = ['목적', '평균 결제액', '평균 중량(kg)', '주문 건수']
         st.dataframe(purpose_agg.style.format({'평균 결제액': '{:,.0f}원', '평균 중량(kg)': '{:.2f}kg'}), use_container_width=True)
     else:
@@ -166,7 +186,7 @@ with tabs[3]:
         st.markdown("고객별 총 결제금액, 재구매 횟수, 평균 구매 중량을 기반으로 고객을 분류합니다.")
         
         cust_data = filtered_df.groupby('UID').agg({
-            '실결제 금액': 'sum',
+            'item_revenue': 'sum',
             '재구매 횟수': 'max',
             '무게(kg)': 'mean'
         }).reset_index().dropna()
@@ -208,7 +228,7 @@ with tabs[4]:
         
         if not s_df.empty:
             sk1, sk2, sk3, sk4 = st.columns(4)
-            s_total_sales = s_df['실결제 금액'].sum()
+            s_total_sales = s_df['item_revenue'].sum()
             s_total_orders = s_df['주문번호'].nunique()
             s_avg_payment = s_total_sales / s_total_orders if s_total_orders > 0 else 0
             s_repurchase_rate = (s_df['재구매 횟수'] > 0).mean() * 100
@@ -221,9 +241,9 @@ with tabs[4]:
             st.divider()
             sc1, sc2 = st.columns(2)
             with sc1:
-                s_trend = s_df.groupby('date')['실결제 금액'].sum().reset_index()
+                s_trend = s_df.groupby('date')['item_revenue'].sum().reset_index()
                 if not s_trend.empty:
-                    fig_s_trend = px.line(s_trend, x='date', y='실결제 금액', title=f"[{selected_seller}] 매출 트렌드")
+                    fig_s_trend = px.line(s_trend, x='date', y='item_revenue', title=f"[{selected_seller}] 매출 트렌드")
                     fig_s_trend.update_traces(line_color='#FF4B4B')
                     st.plotly_chart(fig_s_trend, use_container_width=True)
             with sc2:
@@ -263,7 +283,7 @@ with tabs[5]:
     if not filtered_df.empty:
         # 셀러별 지표 집계
         seller_perf = filtered_df.groupby('셀러명').agg({
-            '실결제 금액': 'sum',
+            'item_revenue': 'sum',
             '주문번호': 'nunique',
             '재구매 횟수': 'mean',
             '무게(kg)': 'mean'
@@ -289,7 +309,7 @@ with tabs[5]:
         fig_bubble = px.scatter(seller_perf, x='주문 건수', y='총 매출액', size='평균 주문단가(AOV)', 
                                 color='셀러명', hover_name='셀러명',
                                 title="셀러별 매출 vs 주문건수 vs AOV",
-                                labels={'주문 건수': '총 주문 건수', '총 매출액': '총 실결제 금액'})
+                                labels={'주문 건수': '총 주문 건수', '총 매출액': '총 결제금액'})
         st.plotly_chart(fig_bubble, use_container_width=True)
 
         st.divider()
@@ -312,14 +332,14 @@ with tabs[5]:
             
         with c2:
             # 셀러별 매출 상위 상품 (Treemap)
-            product_agg = path_df.groupby(['셀러명', '상품명'])['실결제 금액'].sum().reset_index()
+            product_agg = path_df.groupby(['셀러명', '상품명'])['item_revenue'].sum().reset_index()
             # 각 셀러별 Top 5 상품만 추출
-            product_agg = product_agg.sort_values(['셀러명', '실결제 금액'], ascending=[True, False])
+            product_agg = product_agg.sort_values(['셀러명', 'item_revenue'], ascending=[True, False])
             product_agg = product_agg.groupby('셀러명').head(5)
             
-            fig_tree = px.treemap(product_agg, path=['셀러명', '상품명'], values='실결제 금액',
+            fig_tree = px.treemap(product_agg, path=['셀러명', '상품명'], values='item_revenue',
                                   title=f"상위 {top_n}개 셀러별 주요 판매 상품 (Top 5)",
-                                  color='실결제 금액', color_continuous_scale='RdYlGn')
+                                  color='item_revenue', color_continuous_scale='RdYlGn')
             st.plotly_chart(fig_tree, use_container_width=True)
 
         st.divider()
@@ -327,9 +347,9 @@ with tabs[5]:
         # 4. 셀러별 지역 판매 분포 (Phase 3)
         st.subheader("🌐 셀러별 주요 판매 지역 분포")
         region_df = filtered_df[filtered_df['셀러명'].isin(top_sellers)]
-        region_agg = region_df.groupby(['셀러명', '광역지역(정식)'])['실결제 금액'].sum().reset_index()
+        region_agg = region_df.groupby(['셀러명', '광역지역(정식)'])['item_revenue'].sum().reset_index()
         
-        fig_region_multi = px.bar(region_agg, x='실결제 금액', y='셀러명', color='광역지역(정식)',
+        fig_region_multi = px.bar(region_agg, x='item_revenue', y='셀러명', color='광역지역(정식)',
                                  title=f"상위 {top_n}개 셀러의 지역별 매출 비중",
                                  orientation='h', barmode='stack',
                                  color_discrete_sequence=px.colors.qualitative.T10)
@@ -362,8 +382,8 @@ with tabs[5]:
             
         with lc2:
             # 신규 vs 기존 셀러 매출 기여도
-            cohort_revenue = lifecycle_df.groupby(['month', 'seller_type'])['실결제 금액'].sum().reset_index()
-            fig_cohort = px.area(cohort_revenue, x='month', y='실결제 금액', color='seller_type',
+            cohort_revenue = lifecycle_df.groupby(['month', 'seller_type'])['item_revenue'].sum().reset_index()
+            fig_cohort = px.area(cohort_revenue, x='month', y='item_revenue', color='seller_type',
                                  title="신규 vs 기존 셀러 매출 기여도",
                                  color_discrete_map={'신규 셀러': '#FFA07A', '기존 셀러': '#4682B4'})
             st.plotly_chart(fig_cohort, use_container_width=True)
@@ -386,10 +406,10 @@ with tabs[5]:
 with tabs[6]:
     st.header("🌐 광역지자체별 성과")
     if not filtered_df.empty:
-        region_agg = filtered_df.groupby('광역지역(정식)').agg({'실결제 금액':'sum', '주문번호':'count'}).reset_index().sort_values('실결제 금액', ascending=False)
+        region_agg = filtered_df.groupby('광역지역(정식)').agg({'item_revenue':'sum', '주문번호':'count'}).reset_index().sort_values('item_revenue', ascending=False)
         r1, r2 = st.columns([2, 1])
         with r1:
-            fig_region = px.bar(region_agg, x='광역지역(정식)', y='실결제 금액', color='실결제 금액',
+            fig_region = px.bar(region_agg, x='광역지역(정식)', y='item_revenue', color='item_revenue',
                                 title="지역별 총 매출액", color_continuous_scale='Tealgrn')
             st.plotly_chart(fig_region, use_container_width=True)
         with r2:
