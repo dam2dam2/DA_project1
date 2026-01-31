@@ -324,7 +324,53 @@ with tabs[5]:
 
         st.divider()
 
-        # 4. 셀러 상세 비교 테이블
+        # 4. 셀러별 지역 판매 분포 (Phase 3)
+        st.subheader("🌐 셀러별 주요 판매 지역 분포")
+        region_df = filtered_df[filtered_df['셀러명'].isin(top_sellers)]
+        region_agg = region_df.groupby(['셀러명', '광역지역(정식)'])['실결제 금액'].sum().reset_index()
+        
+        fig_region_multi = px.bar(region_agg, x='실결제 금액', y='셀러명', color='광역지역(정식)',
+                                 title=f"상위 {top_n}개 셀러의 지역별 매출 비중",
+                                 orientation='h', barmode='stack',
+                                 color_discrete_sequence=px.colors.qualitative.T10)
+        st.plotly_chart(fig_region_multi, use_container_width=True)
+
+        st.divider()
+
+        # 5. 셀러 생애주기 및 성장성 분석 (Phase 3)
+        st.subheader("📈 셀러 생애주기 및 플랫폼 성장성")
+        st.markdown("셀러의 유입(신규)과 유지(기존)에 따른 매출 변화 및 활성 셀러 수를 분석합니다.")
+        
+        # 전체 데이터 기준 셀러별 첫 주문일 계산 (생애주기 분석용)
+        # filtered_df는 조회 기간 내 데이터이므로, df(전체)를 사용하여 '진짜' 첫 주문일을 파악해야 함
+        seller_first_order = df.groupby('셀러명')['주문일'].min().reset_index()
+        seller_first_order.columns = ['셀러명', 'first_order_date']
+        
+        # filtered_df와 병합하여 주문 시점 기준 신규/기존 구분
+        lifecycle_df = filtered_df.merge(seller_first_order, on='셀러명')
+        lifecycle_df['is_new_seller'] = lifecycle_df['주문일'].dt.to_period('M') == lifecycle_df['first_order_date'].dt.to_period('M')
+        lifecycle_df['seller_type'] = lifecycle_df['is_new_seller'].map({True: '신규 셀러', False: '기존 셀러'})
+        
+        lc1, lc2 = st.columns(2)
+        with lc1:
+            # 월별 활성 셀러 수 트렌드
+            active_sellers_trend = filtered_df.groupby('month')['셀러명'].nunique().reset_index()
+            fig_active_trend = px.line(active_sellers_trend, x='month', y='셀러명', 
+                                      title="월별 활성 셀러 수 추이", markers=True)
+            fig_active_trend.update_traces(line_color='#2E8B57')
+            st.plotly_chart(fig_active_trend, use_container_width=True)
+            
+        with lc2:
+            # 신규 vs 기존 셀러 매출 기여도
+            cohort_revenue = lifecycle_df.groupby(['month', 'seller_type'])['실결제 금액'].sum().reset_index()
+            fig_cohort = px.area(cohort_revenue, x='month', y='실결제 금액', color='seller_type',
+                                 title="신규 vs 기존 셀러 매출 기여도",
+                                 color_discrete_map={'신규 셀러': '#FFA07A', '기존 셀러': '#4682B4'})
+            st.plotly_chart(fig_cohort, use_container_width=True)
+
+        st.divider()
+
+        # 6. 셀러 상세 비교 테이블
         st.subheader("📑 셀러별 주요 지표 상세")
         st.dataframe(seller_perf.style.format({
             '총 매출액': '{:,.0f}원',
