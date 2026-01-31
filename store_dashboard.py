@@ -45,7 +45,7 @@ max_date = df['date'].max()
 date_range = st.sidebar.date_input("조회 기간", [min_date, max_date], min_value=min_date, max_value=max_date)
 
 # 카테고리(품종) 필터
-variety_list = sorted(df['품종'].unique().tolist())
+variety_list = sorted([str(x) for x in df['품종'].unique() if pd.notna(x)])
 selected_variety = st.sidebar.multiselect("품종 선택", variety_list, default=variety_list)
 
 # 데이터 필터링 적용
@@ -202,7 +202,7 @@ with tabs[3]:
 with tabs[4]:
     st.header("🏪 셀러별 심층 성과 분석")
     if not filtered_df.empty:
-        seller_list = sorted(filtered_df['셀러명'].unique().tolist())
+        seller_list = sorted([str(x) for x in filtered_df['셀러명'].unique() if pd.notna(x)])
         selected_seller = st.selectbox("분석할 셀러를 선택하세요", seller_list, index=0)
         s_df = filtered_df[filtered_df['셀러명'] == selected_seller]
         
