@@ -2,315 +2,217 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import numpy as np
 import os
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 # --- 페이지 설정 ---
 st.set_page_config(
-    page_title="Store Data EDA Dashboard",
-    page_icon="📊",
+    page_title="Refined E-commerce Unified Dashboard",
+    page_icon="🍊",
     layout="wide"
 )
 
-# --- 데이터 로드 ---
+# --- 1. 데이터 로드 ---
 @st.cache_data
 def load_data(file_path):
-    df = pd.read_excel(file_path)
+    df = pd.read_csv(file_path)
     # 날짜 변환
     if '주문일' in df.columns:
-        df['주문일'] = pd.to_datetime(df['주문일'], errors='coerce')
+        df['주문일'] = pd.to_datetime(df['주문일'])
+        df['date'] = df['주문일'].dt.date
+        df['month'] = df['주문일'].dt.to_period('M').astype(str)
+        df['day_name'] = df['주문일'].dt.day_name()
     return df
 
-# 현재 스크립트의 디렉토리를 기준으로 상대 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(current_dir, 'data', 'store_data.xlsx')
+FILE_PATH = os.path.join(current_dir, 'data', 'preprocessed_data.csv')
 
-if not os.path.exists(DATA_PATH):
-    st.error(f"데이터 파일이 없습니다: {DATA_PATH}")
+if not os.path.exists(FILE_PATH):
+    st.error(f"전처리 데이터 파일이 없습니다: {FILE_PATH}")
     st.stop()
 
-df = load_data(DATA_PATH)
+df = load_data(FILE_PATH)
 
-# --- 전처리 ---
-df['year_month'] = df['주문일'].dt.to_period('M').astype(str)
-df['day_name'] = df['주문일'].dt.day_name()
-# 결제금액(상품별)이 실 매출로 추정됨 (취소 제외 필요 여부 확인, 우선 전체 매출로 봄)
-# 주문취소 금액이 있으므로, 순매출 = 결제금액(상품별) - 주문취소 금액(상품별) ?
-# 일반적인 e-commerce 데이터를 가정하여 '결제금액(상품별)'을 기준으로 분석하되, 취소 내역도 별도 분석.
+# --- 2. 사이드바 및 필터 ---
+st.sidebar.title("🔍 분석 필터")
+st.sidebar.markdown("---")
 
-# --- 메인 UI ---
-st.title("📊 Store Data Exploratory Data Analysis")
-st.markdown(f"**데이터 소스**: `{DATA_PATH}` | **총 레코드**: {len(df):,}건")
+# 날짜 필터
+min_date = df['date'].min()
+max_date = df['date'].max()
+date_range = st.sidebar.date_input("조회 기간", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-# 사이드바
-st.sidebar.header("설정")
-start_date = df['주문일'].min()
-end_date = df['주문일'].max()
+# 카테고리(품종) 필터
+variety_list = sorted(df['품종'].unique().tolist())
+selected_variety = st.sidebar.multiselect("품종 선택", variety_list, default=variety_list)
 
-date_range = st.sidebar.date_input(
-    "조회 기간",
-    [start_date, end_date],
-    min_value=start_date,
-    max_value=end_date
-)
-
+# 데이터 필터링 적용
 if len(date_range) == 2:
     start_dt, end_dt = date_range
-    mask = (df['주문일'].dt.date >= start_dt) & (df['주문일'].dt.date <= end_dt)
+    mask = (df['date'] >= start_dt) & (df['date'] <= end_dt) & (df['품종'].isin(selected_variety))
     filtered_df = df.loc[mask]
 else:
-    filtered_df = df
+    filtered_df = df[df['품종'].isin(selected_variety)]
 
-# KPI
-total_sales = filtered_df['결제금액(통합)'].sum() # 통합 금액 사용
-total_orders = len(filtered_df)
-avg_order_value = total_sales / total_orders if total_orders > 0 else 0
-cancel_sales = filtered_df['주문취소 금액(상품별)'].sum()
-net_sales = total_sales - cancel_sales
+# --- 3. 헤더 및 KPI ---
+st.title("🍊 Unified E-commerce Analytics Dashboard")
+st.markdown(f"파이프라인을 통해 정제된 데이터를 기반으로 한 **고도화 분석 대시보드**입니다.")
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("총 결제금액 (Gross Sales)", f"{total_sales:,.0f}원")
-k2.metric("총 주문 건수", f"{total_orders:,}건")
-k3.metric("평균 주문금액 (AOV)", f"{avg_order_value:,.0f}원")
-k4.metric("취소 금액", f"{cancel_sales:,.0f}원", delta=f"-{(cancel_sales/total_sales)*100:.1f}%" if total_sales else 0)
+total_sales = filtered_df['실결제 금액'].sum()
+total_orders = filtered_df['주문번호'].nunique()
+avg_order_value = total_sales / total_orders if total_orders > 0 else 0
+cancel_rate = (filtered_df['취소여부'] == 'Y').mean() * 100
+
+with k1:
+    st.metric("총 실결제 금액", f"{total_sales:,.0f}원")
+with k2:
+    st.metric("총 주문 건수", f"{total_orders:,}건")
+with k3:
+    st.metric("평균 주문 단가(AOV)", f"{avg_order_value:,.0f}원")
+with k4:
+    st.metric("주문 취소율", f"{cancel_rate:.1f}%", delta_color="inverse")
 
 st.divider()
 
-# Tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 매출 트렌드", "🛒 상품/카테고리 분석", "👥 고객/채널 분석", "📊 데이터 상세", "📅 특정 날짜 분석", "🧩 옵션 분석"])
+# --- 4. Tabs 구성 ---
+tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🌐 지역별 분석", "📋 데이터 탐색기"])
 
-# Tab 1: 매출 트렌드
-with tab1:
-    st.subheader("기간별 매출 추이")
-    trend_type = st.radio("집계 기준", ["일별", "월별"], horizontal=True)
+# Tab 1: 매출 및 성과
+with tabs[0]:
+    st.subheader("매출 트렌드 분석")
+    t1, t2 = st.columns([2, 1])
     
-    if trend_type == "일별":
-        trend = filtered_df.groupby(filtered_df['주문일'].dt.date)['결제금액(통합)'].sum().reset_index()
-        trend.columns = ['Date', 'Sales']
-        fig_trend = px.line(trend, x='Date', y='Sales', title="일별 매출 추이", markers=True)
-    else:
-        trend = filtered_df.groupby('year_month')['결제금액(통합)'].sum().reset_index()
-        trend.columns = ['Month', 'Sales']
-        fig_trend = px.bar(trend, x='Month', y='Sales', title="월별 매출 추이", text_auto='.2s')
+    with t1:
+        trend_agg = filtered_df.groupby('date')['실결제 금액'].sum().reset_index()
+        fig_trend = px.line(trend_agg, x='date', y='실결제 금액', title="일별 매출 추이", 
+                            line_shape="spline", render_mode="svg")
+        fig_trend.update_traces(line_color='#FF8C00', fill='tozeroy')
+        st.plotly_chart(fig_trend, use_container_width=True)
         
-    st.plotly_chart(fig_trend, use_container_width=True)
-    
-    # 요일별 분석
-    st.subheader("요일별 주문 패턴")
-    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    filtered_df['day_name'] = pd.Categorical(filtered_df['day_name'], categories=day_order, ordered=True)
-    day_trend = filtered_df.groupby('day_name')['결제금액(통합)'].sum().reset_index()
-    
+    with t2:
+        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        day_agg = filtered_df.groupby('day_name')['실결제 금액'].sum().reindex(day_order).reset_index()
+        fig_day = px.bar(day_agg, x='day_name', y='실결제 금액', color='실결제 금액',
+                         title="요일별 매출 비중", color_continuous_scale='Oranges')
+        st.plotly_chart(fig_day, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("주문 경로 및 방법")
     c1, c2 = st.columns(2)
     with c1:
-        fig_day = px.bar(day_trend, x='day_name', y='결제금액(통합)', title="요일별 매출액", color='결제금액(통합)')
-        st.plotly_chart(fig_day, use_container_width=True)
+        path_agg = filtered_df['주문경로'].value_counts()
+        st.plotly_chart(px.pie(values=path_agg.values, names=path_agg.index, hole=0.5, title="주문 경로 점유율"), use_container_width=True)
     with c2:
-        # 시간대별 분석 (시간 정보가 있다면)
-        # 엑셀 데이터상 시간 정보가 있는지 확인 필요 (datetime이면 있음)
-        # datetime으로 변환했으므로 시각 추출
-        filtered_df['hour'] = filtered_df['주문일'].dt.hour
-        hour_trend = filtered_df.groupby('hour')['주문번호'].count().reset_index(name='count')
-        fig_hour = px.line(hour_trend, x='hour', y='count', title="시간대별 주문 건수", markers=True)
-        st.plotly_chart(fig_hour, use_container_width=True)
+        method_agg = filtered_df['결제방법'].value_counts()
+        st.plotly_chart(px.pie(values=method_agg.values, names=method_agg.index, title="결제 방법 점유율"), use_container_width=True)
 
-# Tab 2: 상품 분석
-with tab2:
-    st.subheader("Top Performing Products")
+# Tab 2: 품종 및 상품 분석
+with tabs[1]:
+    st.subheader("품종 및 상품 포트폴리오")
+    p1, p2 = st.columns(2)
     
-    # 상품별 매출 Top 10
-    top_products = filtered_df.groupby('상품명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
-    
-    col_p1, col_p2 = st.columns([2, 1])
-    with col_p1:
-        fig_prod = px.bar(top_products, x='결제금액(통합)', y='상품명', orientation='h', title="매출 상위 10개 상품", text_auto='.2s')
-        fig_prod.update_layout(yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig_prod, use_container_width=True)
-    with col_p2:
-        st.dataframe(top_products, use_container_width=True)
+    with p1:
+        variety_sales = filtered_df.groupby('품종')['실결제 금액'].sum().sort_values(ascending=False).reset_index()
+        fig_var = px.bar(variety_sales, x='실결제 금액', y='품종', orientation='h', title="품종별 매출 순위",
+                         color='실결제 금액', color_continuous_scale='Viridis')
+        st.plotly_chart(fig_var, use_container_width=True)
         
-    # 상품별 판매량 Top 10
-    top_qty = filtered_df.groupby('상품명')['주문수량'].sum().reset_index().sort_values('주문수량', ascending=False).head(10)
-    st.subheader("판매량 상위 상품")
-    st.dataframe(top_qty.T, use_container_width=True)
+    with p2:
+        size_agg = filtered_df['과수 크기'].value_counts()
+        st.plotly_chart(px.pie(values=size_agg.values, names=size_agg.index, title="과수 크기별 선호도"), use_container_width=True)
 
-# Tab 3: 고객/채널 분석
-with tab3:
-    col_c1, col_c2 = st.columns(2)
-    
-    with col_c1:
-        st.subheader("회원 구분별 주문 비율")
-        member_counts = filtered_df['회원구분'].value_counts()
-        fig_member = px.pie(values=member_counts.values, names=member_counts.index, hole=0.4, title="회원 vs 비회원")
-        st.plotly_chart(fig_member, use_container_width=True)
-        
-    with col_c2:
-        st.subheader("결제 수단별 분석")
-        pay_counts = filtered_df['결제방법'].value_counts()
-        fig_pay = px.pie(values=pay_counts.values, names=pay_counts.index, title="결제 수단 점유율")
-        st.plotly_chart(fig_pay, use_container_width=True)
-        
-    st.divider()
-    st.subheader("주문 경로 및 셀러 분석")
-    
-    c_route1, c_route2 = st.columns(2)
-    with c_route1:
-        # 주문경로 시각화
-        route_df = filtered_df['주문경로'].value_counts().reset_index()
-        route_df.columns = ['Route', 'Count']
-        fig_route = px.bar(route_df, x='Route', y='Count', title="주문 경로별 건수")
-        st.plotly_chart(fig_route, use_container_width=True)
-        
-    with c_route2:
-        # 셀러별 매출
-        if '셀러명' in filtered_df.columns:
-            seller_df = filtered_df.groupby('셀러명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
-            fig_seller = px.bar(seller_df, x='셀러명', y='결제금액(통합)', title="Top 10 셀러 (매출 기준)")
-            st.plotly_chart(fig_seller, use_container_width=True)
+    st.subheader("Top 10 상품 리스트 (실결제 기준)")
+    top_items = filtered_df.groupby('상품명')['실결제 금액'].sum().sort_values(ascending=False).head(10).reset_index()
+    st.table(top_items)
 
-# Tab 4: 데이터 상세
-with tab4:
-    st.subheader("Raw Data Preview")
+# Tab 3: 무게/가격 분포
+with tabs[2]:
+    st.subheader("중량 및 가격대 분포 분석")
+    w1, w2 = st.columns(2)
+    
+    with w1:
+        fig_w = px.histogram(filtered_df, x='무게(kg)', nbins=20, title="주문 중량(kg) 분포",
+                             color_discrete_sequence=['#4B0082'])
+        st.plotly_chart(fig_w, use_container_width=True)
+        
+    with w2:
+        price_order = ["1만원 이하", "1~3만원", "3~5만원", "5~10만원", "10만원 초반"]
+        price_agg = filtered_df['가격대'].value_counts().reindex(price_order).reset_index()
+        fig_p = px.bar(price_agg, x='가격대', y='count', title="가격대별 주문 건수", 
+                       color='가격대', color_discrete_sequence=px.colors.qualitative.Pastel)
+        st.plotly_chart(fig_p, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("목적별 주문 특성 (개인소비 vs 선물)")
+    purpose_agg = filtered_df.groupby('목적').agg({'실결제 금액':'mean', '무게(kg)':'mean', '주문번호':'count'}).reset_index()
+    purpose_agg.columns = ['목적', '평균 결제액', '평균 중량(kg)', '주문 건수']
+    st.dataframe(purpose_agg.style.format({'평균 결제액': '{:,.0f}원', '평균 중량(kg)': '{:.2f}kg'}), use_container_width=True)
+
+# Tab 4: 고객 군집 분석
+with tabs[3]:
+    st.header("🧬 고객 가치 세그먼테이션 (Clustering)")
+    st.markdown("고객별 총 결제금액, 재구매 횟수, 평균 구매 중량을 기반으로 고객을 분류합니다.")
+    
+    # 군집 분석용 데이터 준비
+    cust_data = filtered_df.groupby('UID').agg({
+        '실결제 금액': 'sum',
+        '재구매 횟수': 'max',
+        '무게(kg)': 'mean'
+    }).reset_index()
+    cust_data.columns = ['UID', 'total_spent', 'max_repurchase', 'avg_weight']
+    
+    if len(cust_data) >= 4:
+        # 스케일링
+        features = ['total_spent', 'max_repurchase', 'avg_weight']
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(cust_data[features])
+        
+        # K-Means
+        n_clusters = st.slider("군집 수(K) 선택", 2, 6, 4)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        cust_data['cluster'] = kmeans.fit_predict(scaled_features)
+        
+        g1, g2 = st.columns([2, 1])
+        with g1:
+            fig_cluster = px.scatter_3d(cust_data, x='total_spent', y='max_repurchase', z='avg_weight',
+                                        color='cluster', title="3D 고객 세그먼트 시각화",
+                                        labels={'total_spent':'총 지출', 'max_repurchase':'재구매 횟수', 'avg_weight':'평균 중량'},
+                                        opacity=0.7)
+            st.plotly_chart(fig_cluster, use_container_width=True)
+            
+        with g2:
+            cluster_summary = cust_data.groupby('cluster')[features].mean().reset_index()
+            st.write("**군집별 평균 지표**")
+            st.dataframe(cluster_summary.style.background_gradient(cmap='Blues'))
+            
+        st.info("💡 **군집 해석 팁**: 지출과 재구매가 모두 높은 군집은 '충성 고객', 재구매는 낮지만 지출이 높은 군집은 '대량 구매 신규 고객'으로 해석할 수 있습니다.")
+    else:
+        st.warning("군집 분석을 위한 데이터가 충분하지 않습니다.")
+
+# Tab 5: 지역별 분석
+with tabs[4]:
+    st.subheader("🌐 광역지자체별 성과")
+    region_agg = filtered_df.groupby('광역지역(정식)').agg({'실결제 금액':'sum', '주문번호':'count'}).reset_index().sort_values('실결제 금액', ascending=False)
+    
+    r1, r2 = st.columns([2, 1])
+    with r1:
+        fig_region = px.bar(region_agg, x='광역지역(정식)', y='실결제 금액', color='실결제 금액',
+                            title="지역별 총 매출액", color_continuous_scale='Tealgrn')
+        st.plotly_chart(fig_region, use_container_width=True)
+    with r2:
+        st.write("**지역별 매출 상세**")
+        st.dataframe(region_agg, use_container_width=True)
+
+# Tab 6: 데이터 탐색기
+with tabs[5]:
+    st.subheader("상세 데이터 테이블")
     st.dataframe(filtered_df, use_container_width=True)
     
-    st.subheader("상관관계 분석 (수치형 변수)")
-    numeric_df = filtered_df.select_dtypes(include=['int64', 'float64'])
-    corr = numeric_df.corr()
-    fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r', title="Correlation Heatmap")
-    st.plotly_chart(fig_corr, use_container_width=True)
-
-# Tab 5: 특정 날짜 상세 분석 (Peak Day Analysis)
-with tab5:
-    st.subheader("📅 특정 날짜 상세 분석 (Peak Day Deep Dive)")
-    st.markdown("매출이 유독 높거나 관심 있는 **특정 날짜**를 선택하여, 해당 일자의 **효자 상품**과 **주요 셀러**를 분석합니다.")
-    
-    # 날짜별 매출 데이터 생성
-    daily_stats = filtered_df.groupby(filtered_df['주문일'].dt.date).agg({
-        '결제금액(통합)': 'sum', 
-        '주문번호': 'count'
-    }).reset_index().sort_values('결제금액(통합)', ascending=False)
-    
-    daily_stats.columns = ['Date', 'Sales', 'Orders']
-    
-    # 선택 옵션 생성 (예: "2025-10-17 (매출: 12,000,000원, 주문: 150건)")
-    daily_stats['label'] = daily_stats.apply(
-        lambda x: f"{x['Date']} (매출: {x['Sales']:,.0f}원, 주문: {x['Orders']}건)", axis=1
-    )
-    
-    # 날짜 선택 (Selectbox 사용 - 검색 가능)
-    # 기본값: 매출 1위 날짜
-    selected_option = st.selectbox(
-        "분석할 날짜를 선택하세요 (날짜 또는 매출로 검색 가능)", 
-        options=daily_stats['label'],
-        index=0
-    )
-    
-    # 선택된 라벨에서 날짜 추출
-    selected_date_str = selected_option.split(' ')[0]
-    selected_date = pd.to_datetime(selected_date_str).date()
-    
-    # 해당 날짜 데이터 필터링
-    target_df = df[df['주문일'].dt.date == selected_date]
-    
-    if not target_df.empty:
-        # Day KPI
-        day_sales = target_df['결제금액(통합)'].sum()
-        day_orders = len(target_df)
-        
-        c_kpi1, c_kpi2 = st.columns(2)
-        c_kpi1.metric(f"{selected_date} 매출", f"{day_sales:,.0f}원")
-        c_kpi2.metric(f"{selected_date} 주문 수", f"{day_orders:,}건")
-        
-        st.divider()
-        
-        # 시각화: 상품 & 셀러
-        col_d1, col_d2 = st.columns(2)
-        
-        with col_d1:
-            st.subheader("🏆 당일 판매량 Top 10 상품")
-            # 금액 기준 vs 수량 기준 (여기선 금액 기준)
-            day_top_prod = target_df.groupby('상품명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
-            
-            fig_day_prod = px.bar(day_top_prod, x='결제금액(통합)', y='상품명', orientation='h', 
-                                  title=f"{selected_date} 상품별 매출", text_auto='.2s', color='결제금액(통합)')
-            fig_day_prod.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_day_prod, use_container_width=True)
-            
-        with col_d2:
-            st.subheader("🥇 당일 매출 Top 10 셀러")
-            if '셀러명' in target_df.columns:
-                day_top_seller = target_df.groupby('셀러명')['결제금액(통합)'].sum().reset_index().sort_values('결제금액(통합)', ascending=False).head(10)
-                
-                fig_day_seller = px.pie(day_top_seller, values='결제금액(통합)', names='셀러명', 
-                                        title=f"{selected_date} 셀러 매출 비중", hole=0.3)
-                st.plotly_chart(fig_day_seller, use_container_width=True)
-            else:
-                st.info("셀러명 정보가 없습니다.")
-        
-        st.subheader("📋 당일 주문 상세 내역")
-        st.dataframe(target_df[['주문번호', '상품명', '주문수량', '결제금액(통합)', '셀러명', '주문경로']].sort_values('결제금액(통합)', ascending=False), 
-                     use_container_width=True)
-        
-    else:
-        st.warning("선택한 날짜에 주문 데이터가 없습니다.")
-
-
-
-# ... (Tab 1~5 code remains same, I will target the tabs line update separately if needed, but here I can just update the tab list line and the new tab content) ...
-# Actually, I should update the tab definition line first.
-# Wait, let's just update the content at the end and the tab definition.
-
-# Tab 6 Content
-with tab6:
-    st.subheader("🧩 상품 옵션 상세 분석")
-    st.markdown("상품명에 포함된 **옵션 정보(▶)**를 분리하여, **옵션별 인기 순위**와 **상품별 옵션 분포**를 분석합니다.")
-
-    # 전처리 (Parsing)
-    import re
-    def parse_product_name(row):
-        full_name = str(row['상품명'])
-        # (수량) 제거 pattern: 괄호 안 숫자+개/EA/ea 등
-        clean_name = re.sub(r'\(\d+(개|EA|ea)\)', '', full_name, flags=re.IGNORECASE).strip()
-        # 특수문자 ▶, ▷ 처리
-        parts = re.split(r'[▶▷]', clean_name)
-        
-        if len(parts) > 1:
-            item_name = parts[0].strip()
-            # 옵션이 여러 개일 수 있으나 첫 번째 구분자 이후를 통으로 옵션으로 봄
-            option_name = parts[1].strip()
-        else:
-            item_name = clean_name
-            option_name = "단일 옵션"
-        return pd.Series([item_name, option_name])
-
-    with st.spinner("옵션 데이터 분리 및 분석 중..."):
-        # 데이터 분리 적용 (캐싱이 안되어 있으므로 매번 실행됨 - 최적화 필요시 @st.cache_data 사용 고려)
-        option_df = filtered_df.copy()
-        option_df[['ItemName', 'OptionName']] = option_df.apply(parse_product_name, axis=1)
-        
-        # 1. 옵션별 빈도 분석
-        st.subheader("1. 가장 많이 선택된 옵션 (Top Options)")
-        option_counts = option_df['OptionName'].value_counts().head(20).reset_index()
-        option_counts.columns = ['OptionName', 'Count']
-        
-        fig_opt_bar = px.bar(option_counts, x='Count', y='OptionName', orientation='h', 
-                             title="인기 옵션 Top 20", text_auto=True, color='Count')
-        fig_opt_bar.update_layout(yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig_opt_bar, use_container_width=True)
-        
-        # 2. 상품별 옵션 리스트 및 비중
-        st.subheader("2. 상품별 옵션 분포 (Sunburst Chart)")
-        # 매출 상위 5개 상품에 대해서만 시각화 (너무 많으면 복잡함)
-        top_5_items = option_df.groupby('ItemName')['결제금액(통합)'].sum().sort_values(ascending=False).head(5).index
-        
-        sunburst_df = option_df[option_df['ItemName'].isin(top_5_items)]
-        sunburst_data = sunburst_df.groupby(['ItemName', 'OptionName']).size().reset_index(name='Count')
-        
-        fig_sun = px.sunburst(sunburst_data, path=['ItemName', 'OptionName'], values='Count',
-                              title="매출 상위 5개 상품의 옵션 구성")
-        st.plotly_chart(fig_sun, use_container_width=True)
-        
-        # 3. 분리된 데이터 미리보기
-        st.subheader("3. 분리된 데이터 확인")
-        st.dataframe(option_df[['주문번호', '상품명', 'ItemName', 'OptionName', '주문수량', '결제금액(통합)']].head(100), 
-                     use_container_width=True)
-
+    st.subheader("수치형 칼럼 상관관계")
+    numeric_cols = filtered_df.select_dtypes(include=['int64', 'float64']).columns
+    if len(numeric_cols) > 1:
+        corr = filtered_df[numeric_cols].corr()
+        st.plotly_chart(px.imshow(corr, text_auto=True, title="Correlation Heatmap", color_continuous_scale='RdBu_r'))

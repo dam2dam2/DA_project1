@@ -78,7 +78,7 @@ with k4:
 st.divider()
 
 # --- 4. Tabs 구성 ---
-tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🌐 지역별 분석", "📋 데이터 탐색기"])
+tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "� 셀러별 심층 분석", "�🌐 지역별 분석", "📋 데이터 탐색기"])
 
 # Tab 1: 매출 및 성과
 with tabs[0]:
@@ -192,8 +192,65 @@ with tabs[3]:
     else:
         st.warning("군집 분석을 위한 데이터가 충분하지 않습니다.")
 
-# Tab 5: 지역별 분석
+# Tab 5: 셀러별 심층 분석
 with tabs[4]:
+    st.header("🏪 셀러별 심층 성과 분석")
+    
+    # 셀러 선택 필터 (탭 내부용)
+    seller_list = sorted(filtered_df['셀러명'].unique().tolist())
+    selected_seller = st.selectbox("분석할 셀러를 선택하세요", seller_list, index=0)
+    
+    s_df = filtered_df[filtered_df['셀러명'] == selected_seller]
+    
+    sk1, sk2, sk3, sk4 = st.columns(4)
+    s_total_sales = s_df['실결제 금액'].sum()
+    s_total_orders = s_df['주문번호'].nunique()
+    s_avg_payment = s_total_sales / s_total_orders if s_total_orders > 0 else 0
+    s_repurchase_rate = (s_df['재구매 횟수'] > 0).mean() * 100
+    
+    sk1.metric("셀러 총 매출", f"{s_total_sales:,.0f}원")
+    sk2.metric("총 주문 건수", f"{s_total_orders:,}건")
+    sk3.metric("평균 주문 단가", f"{s_avg_payment:,.0f}원")
+    sk4.metric("고객 재구매율", f"{s_repurchase_rate:.1f}%")
+    
+    st.divider()
+    
+    # 1. 시계열 분석 및 주문 경로
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        s_trend = s_df.groupby('date')['실결제 금액'].sum().reset_index()
+        fig_s_trend = px.line(s_trend, x='date', y='실결제 금액', title=f"[{selected_seller}] 매출 트렌드")
+        fig_s_trend.update_traces(line_color='#FF4B4B')
+        st.plotly_chart(fig_s_trend, use_container_width=True)
+    with sc2:
+        s_path = s_df['주문경로'].value_counts().reset_index()
+        fig_s_path = px.pie(s_path, values='count', names='주문경로', hole=0.4, title=f"[{selected_seller}] 주문경로 점유율")
+        st.plotly_chart(fig_s_path, use_container_width=True)
+        
+    # 2. 지역 및 품종 분포
+    sc3, sc4 = st.columns(2)
+    with sc3:
+        s_region = s_df['광역지역(정식)'].value_counts().reset_index().head(10)
+        fig_s_region = px.bar(s_region, x='count', y='광역지역(정식)', orientation='h', 
+                             title=f"[{selected_seller}] 주요 판매 지역 (Top 10)", color='count', color_continuous_scale='Reds')
+        st.plotly_chart(fig_s_region, use_container_width=True)
+    with sc4:
+        s_variety = s_df['품종'].value_counts().reset_index()
+        fig_s_variety = px.bar(s_variety, x='품종', y='count', title=f"[{selected_seller}] 취급 품종 분포", color='품종')
+        st.plotly_chart(fig_s_variety, use_container_width=True)
+
+    st.divider()
+    st.subheader(f"💡 {selected_seller} 셀러 전략 제언")
+    
+    # 간단한 로직 기반 제언
+    top_path = s_path.iloc[0]['주문경로'] if not s_path.empty else "N/A"
+    if s_repurchase_rate > 30:
+        st.success(f"✅ **충성도 높음**: 재구매율이 {s_repurchase_rate:.1f}%로 매우 높습니다. 단골 고객 대상 감사 이벤트를 추천합니다.")
+    else:
+        st.info(f"ℹ️ **신규 유입 중심**: 현재 {top_path}를 통한 유입이 가장 많습니다. 초기 구매 고객을 단골로 전환하기 위한 첫 구매 혜택 강화가 필요합니다.")
+
+# Tab 6: 지역별 분석
+with tabs[5]:
     st.subheader("🌐 광역지자체별 성과")
     region_agg = filtered_df.groupby('광역지역(정식)').agg({'실결제 금액':'sum', '주문번호':'count'}).reset_index().sort_values('실결제 금액', ascending=False)
     
@@ -206,8 +263,8 @@ with tabs[4]:
         st.write("**지역별 매출 상세**")
         st.dataframe(region_agg, use_container_width=True)
 
-# Tab 6: 데이터 탐색기
-with tabs[5]:
+# Tab 7: 데이터 탐색기
+with tabs[6]:
     st.subheader("상세 데이터 테이블")
     st.dataframe(filtered_df, use_container_width=True)
     
