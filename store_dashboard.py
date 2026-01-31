@@ -283,7 +283,7 @@ with tabs[5]:
 
         st.divider()
         
-        # 2. 성과 매트릭스 (버블 차트)
+        # 2. 성과 매트릭스 (버러 차트)
         st.subheader("📈 셀러 성과 매트릭스")
         st.markdown("주문 건수 대비 매출액을 비교하며, 버블 크기는 평균 주문단가(AOV)를 나타냅니다.")
         fig_bubble = px.scatter(seller_perf, x='주문 건수', y='총 매출액', size='평균 주문단가(AOV)', 
@@ -294,7 +294,37 @@ with tabs[5]:
 
         st.divider()
 
-        # 3. 셀러 상세 비교 테이블
+        # 3. 셀러별 주문 경로 및 상품 분석
+        st.subheader("📊 셀러별 주문 경로 및 상품 포트폴리오")
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            # 상위 N개 셀러의 주문경로 비중
+            top_sellers = seller_perf.head(top_n)['셀러명']
+            path_df = filtered_df[filtered_df['셀러명'].isin(top_sellers)]
+            path_agg = path_df.groupby(['셀러명', '주문경로']).size().reset_index(name='주문건수')
+            
+            fig_path_multi = px.bar(path_agg, x='주문건수', y='셀러명', color='주문경로',
+                                   title=f"상위 {top_n}개 셀러 주문경로 비중",
+                                   orientation='h', barmode='stack',
+                                   color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_path_multi, use_container_width=True)
+            
+        with c2:
+            # 셀러별 매출 상위 상품 (Treemap)
+            product_agg = path_df.groupby(['셀러명', '상품명'])['실결제 금액'].sum().reset_index()
+            # 각 셀러별 Top 5 상품만 추출
+            product_agg = product_agg.sort_values(['셀러명', '실결제 금액'], ascending=[True, False])
+            product_agg = product_agg.groupby('셀러명').head(5)
+            
+            fig_tree = px.treemap(product_agg, path=['셀러명', '상품명'], values='실결제 금액',
+                                  title=f"상위 {top_n}개 셀러별 주요 판매 상품 (Top 5)",
+                                  color='실결제 금액', color_continuous_scale='RdYlGn')
+            st.plotly_chart(fig_tree, use_container_width=True)
+
+        st.divider()
+
+        # 4. 셀러 상세 비교 테이블
         st.subheader("📑 셀러별 주요 지표 상세")
         st.dataframe(seller_perf.style.format({
             '총 매출액': '{:,.0f}원',
