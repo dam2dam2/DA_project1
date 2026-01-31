@@ -78,7 +78,7 @@ with k4:
 st.divider()
 
 # --- 4. Tabs 구성 ---
-tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🏪 셀러별 심층 분석", "🌐 지역별 분석", "📋 데이터 탐색기"])
+tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🏪 셀러별 심층 분석", "📊 셀러 통합 비교", "🌐 지역별 분석", "📋 데이터 탐색기"])
 
 # Tab 1: 매출 및 성과
 with tabs[0]:
@@ -257,8 +257,57 @@ with tabs[4]:
     else:
         st.warning("데이터가 없습니다.")
 
-# Tab 6: 지역별 분석
+# Tab 6: 셀러 통합 비교
 with tabs[5]:
+    st.header("📊 셀러별 통합 비교 분석")
+    if not filtered_df.empty:
+        # 셀러별 지표 집계
+        seller_perf = filtered_df.groupby('셀러명').agg({
+            '실결제 금액': 'sum',
+            '주문번호': 'nunique',
+            '재구매 횟수': 'mean',
+            '무게(kg)': 'mean'
+        }).reset_index()
+        
+        seller_perf.columns = ['셀러명', '총 매출액', '주문 건수', '평균 재구매 횟수', '평균 중량(kg)']
+        seller_perf['평균 주문단가(AOV)'] = seller_perf['총 매출액'] / seller_perf['주문 건수']
+        seller_perf = seller_perf.sort_values('총 매출액', ascending=False)
+
+        # 1. 상위 셀러 매출 비교
+        st.subheader("🏆 상위 셀러 매출 현황")
+        top_n = st.slider("표시할 셀러 수", 5, 20, 10)
+        fig_multi_sales = px.bar(seller_perf.head(top_n), x='총 매출액', y='셀러명', orientation='h',
+                                 title=f"매출 상위 {top_n}개 셀러", color='총 매출액',
+                                 color_continuous_scale='Sunset')
+        st.plotly_chart(fig_multi_sales, use_container_width=True)
+
+        st.divider()
+        
+        # 2. 성과 매트릭스 (버블 차트)
+        st.subheader("📈 셀러 성과 매트릭스")
+        st.markdown("주문 건수 대비 매출액을 비교하며, 버블 크기는 평균 주문단가(AOV)를 나타냅니다.")
+        fig_bubble = px.scatter(seller_perf, x='주문 건수', y='총 매출액', size='평균 주문단가(AOV)', 
+                                color='셀러명', hover_name='셀러명',
+                                title="셀러별 매출 vs 주문건수 vs AOV",
+                                labels={'주문 건수': '총 주문 건수', '총 매출액': '총 실결제 금액'})
+        st.plotly_chart(fig_bubble, use_container_width=True)
+
+        st.divider()
+
+        # 3. 셀러 상세 비교 테이블
+        st.subheader("📑 셀러별 주요 지표 상세")
+        st.dataframe(seller_perf.style.format({
+            '총 매출액': '{:,.0f}원',
+            '주문 건수': '{:,}건',
+            '평균 재구매 횟수': '{:.2f}회',
+            '평균 중량(kg)': '{:.2f}kg',
+            '평균 주문단가(AOV)': '{:,.0f}원'
+        }).background_gradient(subset=['총 매출액', '주문 건수'], cmap='YlGnBu'), use_container_width=True)
+    else:
+        st.warning("데이터가 없습니다.")
+
+# Tab 7: 지역별 분석
+with tabs[6]:
     st.header("🌐 광역지자체별 성과")
     if not filtered_df.empty:
         region_agg = filtered_df.groupby('광역지역(정식)').agg({'실결제 금액':'sum', '주문번호':'count'}).reset_index().sort_values('실결제 금액', ascending=False)
@@ -273,8 +322,8 @@ with tabs[5]:
     else:
         st.warning("데이터가 없습니다.")
 
-# Tab 7: 데이터 탐색기
-with tabs[6]:
+# Tab 8: 데이터 탐색기
+with tabs[7]:
     st.subheader("상세 데이터 테이블")
     st.dataframe(filtered_df, use_container_width=True)
     if not filtered_df.empty:
