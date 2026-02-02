@@ -11,7 +11,10 @@ def generate_uid(row):
         unit_price = str(int(float(val)))
     except:
         unit_price = "0"
-    text = f"{str(row['상품코드'])}{str(row['상품명'])}{unit_price}"
+    
+    # UID = hash(상품코드 + 상품명 + 고객선택옵션 + 단가)
+    opt = str(row['고객선택옵션']) if pd.notna(row['고객선택옵션']) else ""
+    text = f"{str(row['상품코드'])}{str(row['상품명'])}{opt}{unit_price}"
     return "U" + hashlib.md5(text.encode()).hexdigest().upper()[:5]
 
 def anonymize_phone(phone_series):
@@ -100,11 +103,17 @@ def rebuild_pipeline():
     }
     df = raw_df.rename(columns=mapping).copy()
 
-    # 숫자형 변환
+    # 숫자형 변환 (계산을 위해 먼저 수행)
     numeric_cols = ['결제금액', '주문취소 금액', '판매단가', '공급단가', '주문수량', '취소수량']
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
+
+    # 단가 계산 수정 (합계 -> 개당 단가)
+    # 원본에서 '판매단가'로 매핑된 '상품금액(옵션포함)'은 수량이 곱해진 금액이므로 나눔
+    # 다만, '공급단가'는 기존 preprocessed_data.csv에서 합계 금액으로 기록되어 있었으므로 수정을 취소하고 유지함
+    df['판매단가'] = df.apply(lambda r: r['판매단가'] / r['주문수량'] if r['주문수량'] > 0 else r['판매단가'], axis=1)
+    # df['공급단가'] 는 그대로 유지 (합계 금액)
 
     df['실결제 금액'] = df['결제금액'] - df['주문취소 금액']
     df['주문-취소 수량'] = df['주문수량'] - df['취소수량']
