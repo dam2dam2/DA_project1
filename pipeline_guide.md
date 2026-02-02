@@ -1,13 +1,18 @@
-# 통합 데이터 전처리 파이프라인 가이드 (`run_pipeline.py`)
+# 통합 데이터 전처리 파이프라인 가이드 (`rebuild_pipeline.py`)
 
-이 문서는 `rawdata.xlsx` 원본 데이터를 분석용 `preprocessed_data.csv`로 변환하는 상세 로직과 유지보수 방법을 설명합니다. 이 가이드를 통해 분석 데이터의 일관성을 유지하고, 새로운 전처리 요구사항을 안전하게 반영할 수 있습니다.
+이 문서는 `data/origin_data` 폴더의 원본 엑셀 파일들을 통합하고 익명화하여 분석용 `preprocessed_data_new.csv`를 생성하는 과정을 설명합니다.
 
-## 1. 전처리 실행 방법
+## 1. 전처리 실행 및 통합 방법
 - **환경**: `/Users/dmjeong/innercircle/.venv` (Python 3.8+)
 - **명령어**:
   ```bash
-  /Users/dmjeong/innercircle/.venv/bin/python /Users/dmjeong/innercircle/DA_project1/run_pipeline.py
+  /Users/dmjeong/innercircle/.venv/bin/python /Users/dmjeong/innercircle/DA_project1/rebuild_pipeline.py
   ```
+- **수행 과정**:
+  1. `data/origin_data/*.xlsx` 파일 수집 및 병합.
+  2. 고객 연락처 및 수령인 연락처 익명화 (`ANON_XXXXX`).
+  3. `UID` 생성: `상품코드 + 상품명 + 판매단가`의 조합으로 고유 식별자 부여.
+  4. 파생 필드 생성 및 수치 정규화 (기존 `run_pipeline.py` 로직 포함).
 
 ---
 
