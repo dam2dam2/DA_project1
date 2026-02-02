@@ -19,9 +19,48 @@ def anonymize_phone(phone_series):
     phone_map = {phone: f"ANON_{i+1:05d}" for i, phone in enumerate(unique_phones)}
     return phone_series.map(phone_map)
 
-def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
-    print(f"1. 원본 데이터 수집 및 통합 시작: {origin_dir}")
-    excel_files = sorted(glob.glob(os.path.join(origin_dir, "*.xlsx")))
+def get_next_version(directory, base_name="preprocessed_data"):
+    files = glob.glob(os.path.join(directory, f"{base_name}_*.csv"))
+    if not files:
+        return 1
+    
+    versions = []
+    for f in files:
+        match = re.search(rf"{base_name}_(\d+)\.csv$", f)
+        if match:
+            versions.append(int(match.group(1)))
+    
+    return max(versions) + 1 if versions else 1
+
+def get_latest_version_path(directory, base_name="preprocessed_data"):
+    files = glob.glob(os.path.join(directory, f"{base_name}_*.csv"))
+    if not files:
+        # Fallback to the original preprocessed_data.csv if exists
+        fallback = os.path.join(directory, "preprocessed_data.csv")
+        return fallback if os.path.exists(fallback) else None
+    
+    versions = []
+    for f in files:
+        match = re.search(rf"{base_name}_(\d+)\.csv$", f)
+        if match:
+            versions.append((int(match.group(1)), f))
+    
+    if versions:
+        latest_ver, latest_path = max(versions, key=lambda x: x[0])
+        return latest_path
+    return None
+
+def rebuild_pipeline():
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ORIGIN_DIR = os.path.join(BASE_DIR, "data", "origin_data")
+    DATA_DIR = os.path.join(BASE_DIR, "data")
+    
+    next_ver = get_next_version(DATA_DIR)
+    PREPROCESSED_PATH = os.path.join(DATA_DIR, f"preprocessed_data_{next_ver}.csv")
+    LATEST_OLD_PATH = get_latest_version_path(DATA_DIR)
+
+    print(f"1. 원본 데이터 수집 및 통합 시작: {ORIGIN_DIR}")
+    excel_files = sorted(glob.glob(os.path.join(ORIGIN_DIR, "*.xlsx")))
     
     if not excel_files:
         print("Error: 원본 엑셀 파일을 찾을 수 없습니다. origin_data 폴더를 확인해주세요.")
@@ -34,7 +73,7 @@ def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
     
     raw_df = pd.concat(all_dfs, ignore_index=True)
     
-    # 중복 제거: '주문상품고유번호'가 있는 경우 이를 기준으로 중복 데이터 배제
+    # 중복 제거
     if '주문상품고유번호' in raw_df.columns:
         before_len = len(raw_df)
         raw_df = raw_df.drop_duplicates(subset=['주문상품고유번호'], keep='first')
@@ -43,12 +82,10 @@ def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
             print(f"   - 중복 데이터 제거됨: {before_len - after_len}행 (주문상품고유번호 기준)")
 
     print("2. 익명화 및 기본 정제 진행 중...")
-    # 익명화 (ANON_ 형식) - 전체 데이터 대상으로 재작성하여 일관성 유지
     raw_df['주문자연락처'] = anonymize_phone(raw_df['주문자연락처'].astype(str))
     raw_df['수령인연락처'] = anonymize_phone(raw_df['수령인연락처'].astype(str))
     
-    # 옵션코드 생성 (Deterministic Sorting)
-    print("   - 옵션코드 생성 중 (가나다순 정렬)...")
+    # 옵션코드 생성
     df_opt = raw_df[['상품코드', '고객선택옵션']].drop_duplicates().copy()
     df_opt = df_opt.sort_values(['상품코드', '고객선택옵션'])
     df_opt['option_idx'] = df_opt.groupby('상품코드').cumcount() + 1
@@ -67,7 +104,7 @@ def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
     numeric_cols = ['결제금액', '주문취소 금액', '판매단가', '공급단가', '주문수량', '취소수량']
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
 
     df['실결제 금액'] = df['결제금액'] - df['주문취소 금액']
     df['주문-취소 수량'] = df['주문수량'] - df['취소수량']
@@ -130,6 +167,7 @@ def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
     df['가격대'] = df['실결제 금액'].apply(classify_price)
 
     # 4. 타입 정리 및 문자열 전환 (콤마 추가)
+    processed_df = df.copy() # 원본 보존 (비교용)
     for col in ['결제금액', '실결제 금액', '판매단가', '공급단가']:
         df[col] = df[col].apply(lambda x: f"{int(x):,}")
 
@@ -142,21 +180,41 @@ def rebuild_pipeline(origin_dir, output_raw_path, output_preprocessed_path):
     ]
     
     final_df = df.reindex(columns=target_columns).fillna("")
-    print(f"4. 최종 결과 저장: {output_preprocessed_path}")
-    final_df.to_csv(output_preprocessed_path, index=False, encoding='utf-8-sig')
-    print(f"   - 총 {len(final_df)}행의 데이터가 준비되었습니다.")
+    print(f"4. 최종 결과 저장: {PREPROCESSED_PATH}")
+    final_df.to_csv(PREPROCESSED_PATH, index=False, encoding='utf-8-sig')
+    
+    # 상세 보고
+    print("\n" + "="*50)
+    print(f"📊 전처리 작업 결과 보고 (Version {next_ver})")
+    print("="*50)
+    print(f"- 생성 파일: {os.path.basename(PREPROCESSED_PATH)}")
+    print(f"- 전체 데이터 행 수: {len(final_df):,}행")
+    
+    if LATEST_OLD_PATH:
+        print(f"- 이전 파일 대비 비교: {os.path.basename(LATEST_OLD_PATH)}")
+        old_df = pd.read_csv(LATEST_OLD_PATH)
+        row_diff = len(final_df) - len(old_df)
+        print(f"  * 추가된 행 수: {row_diff:+,}행")
+        
+        # 금액 비교 (콤마 제거 후 계산)
+        def get_sum(d, col):
+            return pd.to_numeric(d[col].astype(str).str.replace(',', ''), errors='coerce').sum()
+        
+        old_sales = get_sum(old_df, '실결제 금액')
+        new_sales = get_sum(final_df, '실결제 금액')
+        print(f"  * 총 실결제 금액 변화: {old_sales:,.0f}원 -> {new_sales:,.0f}원 ({new_sales-old_sales:+,.0f}원)")
+        
+        # 신규 주문 확인
+        old_order_ids = set(old_df['주문번호'].unique())
+        new_order_ids = set(final_df['주문번호'].unique())
+        added_orders = new_order_ids - old_order_ids
+        if added_orders:
+            print(f"  * 신규 유입 주문 수: {len(added_orders)}건")
+    else:
+        print("- 최초 전처리 파일 생성입니다.")
+    
+    print("="*50)
+    print("✨ 파이프라인 처리가 완료되었습니다.")
 
 if __name__ == "__main__":
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    ORIGIN_DIR = os.path.join(BASE_DIR, "data", "origin_data")
-    RAW_PATH = os.path.join(BASE_DIR, "data", "rawdata.xlsx") # 전체 원본 통합본 (옵션)
-    PREPROCESSED_PATH = os.path.join(BASE_DIR, "data", "preprocessed_data_new.csv")
-    
-    rebuild_pipeline(ORIGIN_DIR, RAW_PATH, PREPROCESSED_PATH)
-
-if __name__ == "__main__":
-    ORIGIN_DIR = "/Users/dmjeong/innercircle/DA_project1/data/origin_data"
-    RAW_PATH = "/Users/dmjeong/innercircle/DA_project1/data/merged_rawdata_new.xlsx"
-    PREPROCESSED_PATH = "/Users/dmjeong/innercircle/DA_project1/data/preprocessed_data_new.csv"
-    
-    rebuild_pipeline(ORIGIN_DIR, RAW_PATH, PREPROCESSED_PATH)
+    rebuild_pipeline()
