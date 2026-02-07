@@ -551,22 +551,71 @@ with tabs[7]:
             st.info("💡 **인사이트**: 상승 지수가 1.0보다 높을수록 이벤트의 '객단가 높이기' 효과가 실존함을 의미합니다.")
 
         elif selected_hypo.startswith("3."):
-            st.subheader("💝 선물 목적 구매자의 고가 옵션 선택 편향")
-            # 가격대별 비중 분석
-            price_order = ["1만원 이하", "1~3만원", "3~5만원", "5~10만원", "10만원 초반"]
-            bias_df = filtered_df.groupby(['목적', '가격대']).size().unstack(fill_value=0)
-            bias_ratio = bias_df.div(bias_df.sum(axis=1), axis=0)
-            bias_ratio = bias_ratio.reindex(columns=price_order).reset_index()
+            st.subheader("💝 선물 vs 개인소비 심화 비교 분석")
             
-            fig_bias = px.bar(bias_ratio, x='목적', y=price_order, title="구매 목적별 가격대 선택 비중 (%)", barmode='group')
-            st.plotly_chart(fig_bias, use_container_width=True)
+            # 1. 핵심 지표 비교 (Metric)
+            m_agg = filtered_df.groupby('목적').agg({
+                'item_revenue': 'mean',
+                '주문수량': 'mean',
+                '무게(kg)': 'mean'
+            }).reset_index()
             
-            # 로얄과/프리미엄 선택 확률 비교
-            premium_prob = filtered_df.groupby('목적')['상품성등급_그룹'].apply(lambda x: (x == '프리미엄').mean()).reset_index()
-            premium_prob.columns = ['목적', '프리미엄 선택 확률']
-            st.write("**프리미엄 등급 선택 확률 비교**")
-            st.table(premium_prob.style.format({'프리미엄 선택 확률': '{:.2%}'}))
-            st.info("💡 **인사이트**: '선물' 목적 시 프리미엄 선택 확률이 '개인소비'보다 유의미하게 높다면 고객은 선물 시 더 비싼 옵션을 기꺼이 수용함을 뜻합니다.")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                p_aov = m_agg[m_agg['목적']=='개인소비']['item_revenue'].values[0] if not m_agg[m_agg['목적']=='개인소비'].empty else 0
+                g_aov = m_agg[m_agg['목적']=='선물']['item_revenue'].values[0] if not m_agg[m_agg['목적']=='선물'].empty else 0
+                diff_aov = ((g_aov - p_aov) / p_aov * 100) if p_aov > 0 else 0
+                st.metric("평균 객단가 (AOV)", f"{g_aov:,.0f}원", delta=f"{diff_aov:.1f}% (선물 vs 개인)", help="개인소비 대비 선물의 객단가 차이")
+            with c2:
+                p_qty = m_agg[m_agg['목적']=='개인소비']['주문수량'].values[0] if not m_agg[m_agg['목적']=='개인소비'].empty else 0
+                g_qty = m_agg[m_agg['목적']=='선물']['주문수량'].values[0] if not m_agg[m_agg['목적']=='선물'].empty else 0
+                st.metric("평균 주문수량", f"{g_qty:.2f}개", delta=f"{g_qty - p_qty:.2f}")
+            with c3:
+                p_w = m_agg[m_agg['목적']=='개인소비']['무게(kg)'].values[0] if not m_agg[m_agg['목적']=='개인소비'].empty else 0
+                g_w = m_agg[m_agg['목적']=='선물']['무게(kg)'].values[0] if not m_agg[m_agg['목적']=='선물'].empty else 0
+                st.metric("평균 주문중량", f"{g_w:.2f}kg", delta=f"{g_w - p_w:.2f}kg")
+
+            st.write("---")
+            
+            # 2. 중량 및 시간대 분포 비교
+            d1, d2 = st.columns(2)
+            with d1:
+                fig_w_dist = px.box(filtered_df, x='목적', y='무게(kg)', color='목적', 
+                                   title="목적별 중량(kg) 분포 비교", points="all")
+                st.plotly_chart(fig_w_dist, use_container_width=True)
+            with d2:
+                # 시간대별 주문 비중
+                hourly_dist = filtered_df.groupby(['목적', 'hour']).size().reset_index(name='count')
+                hourly_dist['ratio'] = hourly_dist.groupby('목적')['count'].transform(lambda x: x / x.sum() * 100)
+                fig_h = px.line(hourly_dist, x='hour', y='ratio', color='목적', markers=True,
+                                title="목적별 주문 시간대 분포 (%)", labels={'ratio':'주문 비중 (%)'})
+                st.plotly_chart(fig_h, use_container_width=True)
+
+            # 3. 품종 선호도 및 가격대 분석
+            row2_1, row2_2 = st.columns([1.5, 1])
+            with row2_1:
+                # 목적별 품종 선호 Top 5
+                var_pref = filtered_df.groupby(['목적', '품종'])['item_revenue'].sum().reset_index()
+                var_pref['rank'] = var_pref.groupby('목적')['item_revenue'].rank(ascending=False, method='first')
+                var_pref = var_pref[var_pref['rank'] <= 5].sort_values(['목적', 'rank'])
+                fig_var_pref = px.bar(var_pref, x='item_revenue', y='품종', color='목적', barmode='group',
+                                     title="목적별 상위 5개 품종 매출액 비교", orientation='h')
+                st.plotly_chart(fig_var_pref, use_container_width=True)
+            with row2_2:
+                # 프리미엄 선택 확률 재확인
+                premium_prob = filtered_df.groupby('목적')['상품성등급_그룹'].apply(lambda x: (x == '프리미엄').mean()).reset_index()
+                premium_prob.columns = ['목적', '프리미엄 확률']
+                st.write("**고급(프리미엄) 등급 선택 확률**")
+                st.dataframe(premium_prob.style.format({'프리미엄 확률': '{:.1%}'}), use_container_width=True)
+                
+                price_order = ["1만원 이하", "1~3만원", "3~5만원", "5~10만원", "10만원 초반"]
+                bias_df = filtered_df.groupby(['목적', '가격대']).size().unstack(fill_value=0)
+                bias_ratio = bias_df.div(bias_df.sum(axis=1), axis=0).reindex(columns=price_order).reset_index()
+                # 간단한 테이블로 표시
+                st.write("**목적별 가격대 선택 비중**")
+                st.dataframe(bias_ratio.set_index('목적').style.format('{:.1%}'), use_container_width=True)
+
+            st.info("💡 **인사이트**: 선물 목적 주문은 개인소비보다 **중량(kg)** 분포가 상향 평준화되어 있으며, 특정 시간대(예: 퇴근 전후)에 주문이 몰리는 경향이 있는지 시간대 분포를 통해 확인할 수 있습니다.")
 
         elif selected_hypo.startswith("4."):
             st.subheader("🔄 셀러별 재구매 유지력(Retention) 심화")
