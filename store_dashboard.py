@@ -233,9 +233,9 @@ with tabs[3]:
                     agg = filtered_df.groupby('UID').agg({sc['feats'][0]: 'mean', sc['feats'][1]: 'mean', '상품명': 'first'}).reset_index()
                     agg.columns = ['ID', 'F1', 'F2', 'DisplayName']
                 elif i == 4: # 고객별 (연락처 기준)
-                    agg = filtered_df.groupby('주문자연락처').agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'max', '받는사람': 'first'}).reset_index()
+                    agg = filtered_df.groupby('주문자연락처').agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'max', '수령인명': 'first'}).reset_index()
                     # 실명 보호를 위해 마스킹 처리 (예: 홍*동)
-                    agg['DisplayName'] = agg['받는사람'].apply(lambda x: str(x)[0] + "*" + str(x)[-1] if len(str(x)) >= 2 else str(x))
+                    agg['DisplayName'] = agg['수령인명'].apply(lambda x: str(x)[0] + "*" + str(x)[-1] if len(str(x)) >= 2 else str(x))
                     agg.columns = ['ID', 'F1', 'F2', 'OriginalName', 'DisplayName']
                     agg = agg[['ID', 'F1', 'F2', 'DisplayName']]
                 elif i == 2: # 시간대별
