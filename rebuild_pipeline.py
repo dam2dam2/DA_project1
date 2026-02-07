@@ -138,7 +138,21 @@ def rebuild_pipeline():
     # 텍스트 분석
     def parse_text(row):
         txt = f"{str(row.get('상품명', ''))} {str(row.get('고객선택옵션', ''))}"
-        cat = "감귤" if any(k in txt for k in ["감귤", "조생", "타이벡", "귤"]) else ("황금향" if "황금향" in txt else ("고구마" if "고구마" in txt else "기타"))
+        
+        # 품종(cat) 세분화 로직
+        if "한라봉" in txt: cat = "한라봉"
+        elif "레드향" in txt: cat = "레드향"
+        elif "천혜향" in txt: cat = "천혜향"
+        elif "황금향" in txt: cat = "황금향"
+        elif "카라향" in txt: cat = "카라향"
+        elif any(k in txt for k in ["청귤", "풋귤"]): cat = "청귤"
+        elif any(k in txt for k in ["감귤", "조생", "타이벡", "귤"]): cat = "감귤"
+        elif "당근" in txt: cat = "당근"
+        elif "고구마" in txt: cat = "고구마"
+        elif "비트" in txt: cat = "비트"
+        elif "콜라비" in txt: cat = "콜라비"
+        else: cat = "기타"
+
         sub = "타이벡" if "타이벡" in txt else ("조생" if "조생" in txt else ("하우스" if "하우스" in txt else "일반"))
         size = "기타"
         if "소과" in txt and "중소과" in txt: size = "소과, 중소과"
