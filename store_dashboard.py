@@ -594,12 +594,14 @@ with tabs[7]:
             # 3. 품종 선호도 및 가격대 분석
             row2_1, row2_2 = st.columns([1.5, 1])
             with row2_1:
-                # 목적별 품종 선호 Top 5
+                # 목적별 품종 선호 분석 (전체 품종 표시)
                 var_pref = filtered_df.groupby(['목적', '품종'])['item_revenue'].sum().reset_index()
-                var_pref['rank'] = var_pref.groupby('목적')['item_revenue'].rank(ascending=False, method='first')
-                var_pref = var_pref[var_pref['rank'] <= 5].sort_values(['목적', 'rank'])
+                # 매출 순으로 정렬하여 가시성 확보
+                var_pref = var_pref.sort_values(['목적', 'item_revenue'], ascending=[True, False])
+                
                 fig_var_pref = px.bar(var_pref, x='item_revenue', y='품종', color='목적', barmode='group',
-                                     title="목적별 상위 5개 품종 매출액 비교", orientation='h')
+                                     title="목적별 전체 품종 매출액 비교", orientation='h',
+                                     labels={'item_revenue':'매출액(원)', '품종':'품종'})
                 st.plotly_chart(fig_var_pref, use_container_width=True)
             with row2_2:
                 # 프리미엄 선택 확률 재확인
