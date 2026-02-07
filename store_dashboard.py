@@ -138,19 +138,23 @@ with tabs[1]:
         st.subheader("품종 및 상품 포트폴리오")
         p1, p2 = st.columns(2)
         
-        with p1:
-            variety_sales = filtered_df.groupby('품종')['item_revenue'].sum().sort_values(ascending=False).reset_index()
-            fig_var = px.bar(variety_sales, x='item_revenue', y='품종', orientation='h', title="품종별 매출 순위",
-                             color='item_revenue', color_continuous_scale='Viridis')
-            st.plotly_chart(fig_var, use_container_width=True)
+        st.markdown("---")
+        st.subheader("📊 세부 분석: 목적별 품종 선호도 및 상품 순위")
+        pa1, pa2 = st.columns(2)
+        
+        with pa1:
+            # 목적별 품종 매출 비중 (100% Stacked Bar)
+            pv_agg = filtered_df.groupby(['목적', '품종'])['item_revenue'].sum().reset_index()
+            fig_pv = px.bar(pv_agg, x='목적', y='item_revenue', color='품종', 
+                            title="구매 목적별 품종 매출 비중 (100% 비중)",
+                            labels={'item_revenue':'매출액'},
+                            barmode='relative', color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_pv, use_container_width=True)
             
-        with p2:
-            size_agg = filtered_df['과수 크기'].value_counts()
-            st.plotly_chart(px.pie(values=size_agg.values, names=size_agg.index, title="과수 크기별 선호도"), use_container_width=True)
-
-        st.subheader("Top 10 상품 리스트 (결제금액 기준)")
-        top_items = filtered_df.groupby('상품명')['item_revenue'].sum().sort_values(ascending=False).head(10).reset_index()
-        st.table(top_items)
+        with pa2:
+            top_items = filtered_df.groupby('상품명')['item_revenue'].sum().sort_values(ascending=False).head(10).reset_index()
+            st.write("**Top 10 상품 리스트**")
+            st.table(top_items)
     else:
         st.warning("데이터가 없습니다.")
 

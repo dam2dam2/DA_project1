@@ -164,7 +164,16 @@ def rebuild_pipeline():
         elif "중과" in txt: size = "중과";
         gift = "선물세트" if any(k in txt for k in ["선물세트", "선물용"]) else "가정용"
         ev = "Y" if any(k in txt for k in ["이벤트", "1+1", "보장"]) else "N"
-        grade = "프리미엄" if any(k in txt for k in ["프리미엄", "명품", "고당도", "타이벡"]) else "일반"
+        # 프리미엄 등급 신규 기준 적용
+        is_premium = False
+        if gift == "선물세트":
+            is_premium = True
+        elif cat == "감귤" and size == "로얄과":
+            is_premium = True
+        elif cat in ["황금향", "한라봉", "레드향", "천혜향"] and any(s in size for s in ["중과", "중대과", "대과"]):
+            is_premium = True
+        
+        grade = "프리미엄" if is_premium else "일반"
         w_match = re.findall(r'(\d+(\.\d+)?)\s*(kg|KG)', txt)
         w = sum(float(m[0]) for m in w_match) if w_match else 0.0
         grp = "<3kg" if 0 < w < 3 else ("3-5kg" if w <= 5 else ("5-10kg" if w <= 10 else ">10kg")) if w > 0 else "미분류"
