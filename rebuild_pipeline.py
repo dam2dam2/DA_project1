@@ -147,20 +147,32 @@ def rebuild_pipeline():
         sido = sido_map.get(prefix, next((s for s in sido_map.values() if s in address), "기타"))
         sido_formal = formal_map.get(sido, sido)
         
-        # 시군구 추출
+        # 시군구 추출 고도화
         parts = address.split()
-        sigungu = ""
-        if len(parts) > 1:
-            # 첫 번째 단어가 광역지자체인 경우 건너뜀
-            start_idx = 1
+        sigungu = "미분류"
+        
+        if len(parts) > 0:
+            # Sido 키워드 목록
+            sido_keywords = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
+            formal_keywords = list(formal_map.values())
+            all_sido_kws = sido_keywords + formal_keywords + ["전북특별자치도", "강원특별자치도", "제주특별자치도"]
+            
+            # 첫 번째 단어가 Sido인지 확인
+            is_first_sido = any(parts[0].startswith(kw) for kw in all_sido_kws)
+            
+            start_idx = 1 if is_first_sido else 0
+            
             if len(parts) > start_idx:
-                sigungu = parts[start_idx]
-                if sigungu.endswith('시') and len(parts) > start_idx + 1:
-                    if parts[start_idx+1].endswith('구'):
-                        sigungu += " " + parts[start_idx+1]
+                candidate = parts[start_idx]
+                # '시', '군', '구'로 끝날 때만 시군구로 인정
+                if candidate.endswith(('시', '군', '구')):
+                    # '수원시 팔달구'처럼 시+구 형태인 경우 합침
+                    if candidate.endswith('시') and len(parts) > start_idx + 1:
+                        if parts[start_idx+1].endswith('구'):
+                            candidate += " " + parts[start_idx+1]
+                    sigungu = candidate
         
         if sido == "세종": sigungu = "세종시"
-        if not sigungu: sigungu = "미분류"
             
         return sido, sido_formal, sigungu
 
