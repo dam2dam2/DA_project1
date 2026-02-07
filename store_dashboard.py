@@ -460,6 +460,56 @@ with tabs[5]:
     else:
         st.warning("데이터가 없습니다.")
 
+# Tab 7: 지역별 분석
+with tabs[6]:
+    st.header("🌐 지역별 상세 분석 (광역/기초단위)")
+    if not filtered_df.empty:
+        r1, r2 = st.columns([1, 1.2])
+        
+        with r1:
+            st.subheader("📍 광역지자체별 매출 비중")
+            sido_agg = filtered_df.groupby('광역지역(정식)')['item_revenue'].sum().sort_values(ascending=False).reset_index()
+            fig_sido = px.bar(sido_agg, x='item_revenue', y='광역지역(정식)', orientation='h',
+                              title="광역지역별 매출 순위", color='item_revenue', color_continuous_scale='GnBu')
+            st.plotly_chart(fig_sido, use_container_width=True)
+            
+        with r2:
+            st.subheader("🏘️ 시군구별 매출 Top 20")
+            sigungu_agg = filtered_df.groupby(['광역지역(정식)', '시군구'])['item_revenue'].sum().sort_values(ascending=False).reset_index().head(20)
+            fig_sig = px.bar(sigungu_agg, x='item_revenue', y='시군구', color='광역지역(정식)',
+                             title="전국 시군구 매출 상위 20", orientation='h',
+                             labels={'item_revenue':'매출액', '시군구':'시군구(기초)'})
+            st.plotly_chart(fig_sig, use_container_width=True)
+
+        st.divider()
+        
+        # 상세 지역 드릴다운
+        st.subheader("🔍 특정 광역지역 내 시군구 상세 분석")
+        selected_s_sido = st.selectbox("분석할 광역지역을 선택하세요", sido_agg['광역지역(정식)'].tolist(), key='sido_detail_select')
+        
+        if selected_s_sido:
+            sido_detail = filtered_df[filtered_df['광역지역(정식)'] == selected_s_sido]
+            sido_sig_agg = sido_detail.groupby('시군구')['item_revenue'].sum().sort_values(ascending=False).reset_index()
+            
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                fig_sido_sig = px.bar(sido_sig_agg, x='시군구', y='item_revenue', 
+                                      title=f"{selected_s_sido} 내 시군구별 매출 분포", 
+                                      color='item_revenue', color_continuous_scale='YlGn')
+                st.plotly_chart(fig_sido_sig, use_container_width=True)
+            with c2:
+                st.write(f"**{selected_s_sido} 지역 지표**")
+                s_total = sido_detail['item_revenue'].sum()
+                s_orders = sido_detail['주문번호'].nunique()
+                st.metric("지역 총 매출", f"{s_total:,.0f}원")
+                st.metric("지역 주문 건수", f"{s_orders:,}건")
+                if s_orders > 0:
+                    st.metric("지역 평균 단가(AOV)", f"{s_total/s_orders:,.0f}원")
+
+        st.info("💡 **인사이트**: 광역 단위 분석에서는 보이지 않던 '경기도 내 특정 시/구(예: 수원시, 화성시)'의 집중도를 확인하여 타겟 마케팅 지역을 정교화할 수 있습니다.")
+    else:
+        st.warning("데이터가 없습니다.")
+
 # Tab 8: 가설 검증 (Hypothesis Verification)
 with tabs[7]:
     st.header("💡 비즈니스 가설 검증 (Hypothesis Verification)")
