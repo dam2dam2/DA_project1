@@ -39,6 +39,7 @@ def load_data(file_path):
         df['date'] = df['주문일'].dt.date
         df['month'] = df['주문일'].dt.to_period('M').astype(str)
         df['day_name'] = df['주문일'].dt.day_name()
+        df['hour'] = df['주문일'].dt.hour
     return df
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -180,41 +181,94 @@ with tabs[2]:
         st.warning("데이터가 없습니다.")
 
 # Tab 4: 고객 군집 분석
+# Tab 4: 다차원 군집 분석
 with tabs[3]:
-    st.header("🧬 고객 가치 세그먼테이션 (Clustering)")
+    st.header("🧬 다차원 군집 분석 (Multi-Clustering)")
     if not filtered_df.empty:
-        st.markdown("고객별 총 결제금액, 재구매 횟수, 평균 구매 중량을 기반으로 고객을 분류합니다.")
+        scenario = st.selectbox("분석 시나리오를 선택하세요", 
+                               ["지역별 성과", "셀러별 역량", "시간대별 패턴", "가격/중량별 특성", "고객 가치 세그먼트"])
         
-        cust_data = filtered_df.groupby('UID').agg({
-            'item_revenue': 'sum',
-            '재구매 횟수': 'max',
-            '무게(kg)': 'mean'
-        }).reset_index().dropna()
-        cust_data.columns = ['UID', 'total_spent', 'max_repurchase', 'avg_weight']
-        
-        if len(cust_data) >= 4:
-            features = ['total_spent', 'max_repurchase', 'avg_weight']
+        # 시나리오별 데이터 집계
+        if scenario == "지역별 성과":
+            agg_df = filtered_df.groupby('광역지역').agg({
+                'item_revenue': 'sum',
+                '주문번호': 'nunique'
+            }).reset_index()
+            agg_df.columns = ['ID', 'total_sales', 'order_count']
+            features = ['total_sales', 'order_count']
+            labels = {'total_sales':'총 매출액', 'order_count':'주문 건수'}
+            info_txt = "지역별 매출액과 주문 규모를 기준으로 지역군을 분류합니다."
+            
+        elif scenario == "셀러별 역량":
+            agg_df = filtered_df.groupby('셀러명').agg({
+                'item_revenue': 'sum',
+                '재구매 횟수': 'mean'
+            }).reset_index()
+            agg_df.columns = ['ID', 'total_sales', 'avg_repurchase']
+            features = ['total_sales', 'avg_repurchase']
+            labels = {'total_sales':'총 매출액', 'avg_repurchase':'평균 재구매 횟수'}
+            info_txt = "셀러별 매출 규모와 고객 유지력(재구매)을 기준으로 핵심 셀러군을 가려냅니다."
+            
+        elif scenario == "시간대별 패턴":
+            agg_df = filtered_df.groupby('hour').agg({
+                'item_revenue': 'sum',
+                '주문번호': 'nunique'
+            }).reset_index()
+            agg_df.columns = ['ID', 'total_sales', 'order_count']
+            features = ['total_sales', 'order_count']
+            labels = {'total_sales':'시간대별 총 매출', 'order_count':'시간대별 주문수'}
+            info_txt = "시간대별 주문 집중도와 매출 기여도를 분석하여 피크 타임군을 식별합니다."
+            
+        elif scenario == "가격/중량별 특성":
+            # 상품(UID) 기준으로 분석
+            agg_df = filtered_df.groupby('UID').agg({
+                '판매단가': 'mean',
+                '무게(kg)': 'mean'
+            }).reset_index()
+            agg_df.columns = ['ID', 'avg_price', 'avg_weight']
+            features = ['avg_price', 'avg_weight']
+            labels = {'avg_price':'평균 판매가', 'avg_weight':'평균 중량(kg)'}
+            info_txt = "상품의 가격대와 중량을 기준으로 상품군(가성비팩, 프리미엄 선물 등)을 세분화합니다."
+            
+        else: # 고객 가치 세그먼트
+            agg_df = filtered_df.groupby('주문자연락처').agg({
+                'item_revenue': 'sum',
+                '재구매 횟수': 'max'
+            }).reset_index()
+            agg_df.columns = ['ID', 'total_spent', 'max_repurchase']
+            features = ['total_spent', 'max_repurchase']
+            labels = {'total_spent':'총 지출액', 'max_repurchase':'재구매 횟수'}
+            info_txt = "고객별 지출력과 재방문 충성도를 기준으로 고객군을 분류합니다."
+
+        if len(agg_df) >= 3:
+            st.markdown(f"**{scenario} 분석**: {info_txt}")
             scaler = StandardScaler()
-            scaled_features = scaler.fit_transform(cust_data[features])
+            scaled_features = scaler.fit_transform(agg_df[features].fillna(0))
             
-            n_clusters = st.slider("군집 수(K) 선택", 2, 6, 4)
+            n_clusters = st.slider(f"{scenario} 군집 수 선택", 2, 6, 3 if len(agg_df) > 5 else 2)
             kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-            cust_data['cluster'] = kmeans.fit_predict(scaled_features)
+            agg_df['cluster'] = kmeans.fit_predict(scaled_features)
             
-            g1, g2 = st.columns([2, 1])
-            with g1:
-                fig_cluster = px.scatter_3d(cust_data, x='total_spent', y='max_repurchase', z='avg_weight',
-                                            color='cluster', title="3D 고객 세그먼트 시각화",
-                                            labels={'total_spent':'총 지출', 'max_repurchase':'재구매 횟수', 'avg_weight':'평균 중량'},
-                                            opacity=0.7)
-                st.plotly_chart(fig_cluster, use_container_width=True)
-            with g2:
-                cluster_summary = cust_data.groupby('cluster')[features].mean().reset_index()
+            c1, c2 = st.columns([1.5, 1])
+            with c1:
+                # 2차원 산점도
+                fig_2d = px.scatter(agg_df, x=features[0], y=features[1], color='cluster',
+                                   hover_data=['ID'], title=f"[{scenario}] 군집 시각화",
+                                   labels=labels, color_continuous_scale='Viridis')
+                fig_2d.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
+                st.plotly_chart(fig_2d, use_container_width=True)
+            
+            with c2:
+                # 군집별 요약 표
+                cluster_sum = agg_df.groupby('cluster')[features].mean().reset_index()
                 st.write("**군집별 평균 지표**")
-                st.dataframe(cluster_summary.style.background_gradient(cmap='Blues'))
-            st.info("💡 **군집 해석 팁**: 지출과 재구매가 모두 높은 군집은 '충성 고객', 재구매는 낮지만 지출이 높은 군집은 '대량 구매 신규 고객'으로 해석할 수 있습니다.")
+                # 컬럼명 가독성 개선
+                cluster_sum.columns = ['군집'] + [labels[f] for f in features]
+                st.dataframe(cluster_sum.style.background_gradient(cmap='Greens'), use_container_width=True)
+                
+            st.info(f"💡 **분석 가이드**: 우측 상단으로 갈수록 {labels[features[0]]}와 {labels[features[1]]}가 모두 높은 핵심 군집을 의미합니다.")
         else:
-            st.warning("군집 분석을 위한 데이터가 충분하지 않습니다 (최소 4명 이상의 고객 필요).")
+            st.warning(f"분석을 위한 데이터 포인트가 부족합니다. (현재 {len(agg_df)}개, 최소 3개 필요)")
     else:
         st.warning("데이터가 없습니다.")
 
