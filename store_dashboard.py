@@ -184,95 +184,89 @@ with tabs[2]:
     else:
         st.warning("데이터가 없습니다.")
 
-# Tab 4: 고객 군집 분석
 # Tab 4: 다차원 군집 분석
 with tabs[3]:
     st.header("🧬 다차원 군집 분석 (Multi-Clustering)")
     if not filtered_df.empty:
-        scenario = st.selectbox("분석 시나리오를 선택하세요", 
-                               ["지역별 성과", "셀러별 역량", "시간대별 패턴", "가격/중량별 특성", "고객 가치 세그먼트"])
+        # 서브 탭 구성
+        sub_tab_names = ["📍 지역별", "🏪 셀러별", "⏰ 시간대별", "📦 상품별", "👤 고객별"]
+        sub_tabs = st.tabs(sub_tab_names)
         
-        # 시나리오별 데이터 집계
-        if scenario == "지역별 성과":
-            agg_df = filtered_df.groupby('광역지역').agg({
-                'item_revenue': 'sum',
-                '주문번호': 'nunique'
-            }).reset_index()
-            agg_df.columns = ['ID', 'total_sales', 'order_count']
-            features = ['total_sales', 'order_count']
-            labels = {'total_sales':'총 매출액', 'order_count':'주문 건수'}
-            info_txt = "지역별 매출액과 주문 규모를 기준으로 지역군을 분류합니다."
-            
-        elif scenario == "셀러별 역량":
-            agg_df = filtered_df.groupby('셀러명').agg({
-                'item_revenue': 'sum',
-                '재구매 횟수': 'mean'
-            }).reset_index()
-            agg_df.columns = ['ID', 'total_sales', 'avg_repurchase']
-            features = ['total_sales', 'avg_repurchase']
-            labels = {'total_sales':'총 매출액', 'avg_repurchase':'평균 재구매 횟수'}
-            info_txt = "셀러별 매출 규모와 고객 유지력(재구매)을 기준으로 핵심 셀러군을 가려냅니다."
-            
-        elif scenario == "시간대별 패턴":
-            agg_df = filtered_df.groupby('hour').agg({
-                'item_revenue': 'sum',
-                '주문번호': 'nunique'
-            }).reset_index()
-            agg_df.columns = ['ID', 'total_sales', 'order_count']
-            features = ['total_sales', 'order_count']
-            labels = {'total_sales':'시간대별 총 매출', 'order_count':'시간대별 주문수'}
-            info_txt = "시간대별 주문 집중도와 매출 기여도를 분석하여 피크 타임군을 식별합니다."
-            
-        elif scenario == "가격/중량별 특성":
-            # 상품(UID) 기준으로 분석
-            agg_df = filtered_df.groupby('UID').agg({
-                '판매단가': 'mean',
-                '무게(kg)': 'mean'
-            }).reset_index()
-            agg_df.columns = ['ID', 'avg_price', 'avg_weight']
-            features = ['avg_price', 'avg_weight']
-            labels = {'avg_price':'평균 판매가', 'avg_weight':'평균 중량(kg)'}
-            info_txt = "상품의 가격대와 중량을 기준으로 상품군(가성비팩, 프리미엄 선물 등)을 세분화합니다."
-            
-        else: # 고객 가치 세그먼트
-            agg_df = filtered_df.groupby('주문자연락처').agg({
-                'item_revenue': 'sum',
-                '재구매 횟수': 'max'
-            }).reset_index()
-            agg_df.columns = ['ID', 'total_spent', 'max_repurchase']
-            features = ['total_spent', 'max_repurchase']
-            labels = {'total_spent':'총 지출액', 'max_repurchase':'재구매 횟수'}
-            info_txt = "고객별 지출력과 재방문 충성도를 기준으로 고객군을 분류합니다."
+        # 공통 함수: 군집 특성 분석 및 페르소나 생성
+        def get_persona(cluster_row, scenario_type, feature_cols, cluster_summary):
+            vals = cluster_row[feature_cols].values
+            if scenario_type == "지역별":
+                if vals[0] > cluster_summary[feature_cols[0]].mean() * 1.2: return "🔥 핵심 매출 지역"
+                elif vals[1] > cluster_summary[feature_cols[1]].mean() * 1.2: return "📦 주문 밀집 지역"
+                else: return "🌱 성장 잠재 지역"
+            elif scenario_type == "셀러별":
+                if vals[0] > cluster_summary[feature_cols[0]].mean() and vals[1] > 2: return "🎖️ 스타 셀러 (고매출/고유지)"
+                elif vals[0] > cluster_summary[feature_cols[0]].mean(): return "💰 매출 주도 셀러"
+                else: return "🏠 실속형/신규 셀러"
+            elif scenario_type == "시간대별":
+                if vals[1] > cluster_summary[feature_cols[1]].mean() * 1.5: return "🚀 피크 타임"
+                else: return "☕ 여유 시간대"
+            elif scenario_type == "상품별":
+                if vals[0] > 50000: return "💎 프리미엄 라인"
+                elif vals[1] > 5: return "⚖️ 대용량/덕용 상품"
+                else: return "🛒 일반/소량 상품"
+            else: # 고객별
+                if vals[0] > 100000 and vals[1] > 2: return "👑 VIP 고객 (VVIP)"
+                elif vals[1] > 1: return "🔄 충성 고객"
+                else: return "웰컴 고객"
 
-        if len(agg_df) >= 3:
-            st.markdown(f"**{scenario} 분석**: {info_txt}")
-            scaler = StandardScaler()
-            scaled_features = scaler.fit_transform(agg_df[features].fillna(0))
-            
-            n_clusters = st.slider(f"{scenario} 군집 수 선택", 2, 6, 3 if len(agg_df) > 5 else 2)
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-            agg_df['cluster'] = kmeans.fit_predict(scaled_features)
-            
-            c1, c2 = st.columns([1.5, 1])
-            with c1:
-                # 2차원 산점도
-                fig_2d = px.scatter(agg_df, x=features[0], y=features[1], color='cluster',
-                                   hover_data=['ID'], title=f"[{scenario}] 군집 시각화",
-                                   labels=labels, color_continuous_scale='Viridis')
-                fig_2d.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
-                st.plotly_chart(fig_2d, use_container_width=True)
-            
-            with c2:
-                # 군집별 요약 표
-                cluster_sum = agg_df.groupby('cluster')[features].mean().reset_index()
-                st.write("**군집별 평균 지표**")
-                # 컬럼명 가독성 개선
-                cluster_sum.columns = ['군집'] + [labels[f] for f in features]
-                st.dataframe(cluster_sum.style.background_gradient(cmap='Greens'), use_container_width=True)
+        scenarios = [
+            {"name": "지역별 성과", "group": "광역지역", "feats": ['item_revenue', '주문번호'], "cols": ['총 매출액', '주문 건수'], "info": "지역별 매출 규모와 주문 빈도를 기준으로 지역군을 분류합니다."},
+            {"name": "셀러별 역량", "group": "셀러명", "feats": ['item_revenue', '재구매 횟수'], "cols": ['총 매출액', '평균 재구매'], "info": "셀러별 매출 규모와 고객 유지력을 기준으로 핵심 셀러를 분류합니다."},
+            {"name": "시간대별 패턴", "group": 'hour', "feats": ['item_revenue', '주문번호'], "cols": ['매출액', '주문건수'], "info": "시간대별 매출 기여도와 주문 집중도를 분석합니다."},
+            {"name": "가격/중량별 특성", "group": 'UID', "feats": ['판매단가', '무게(kg)'], "cols": ['평균가', '평균중량'], "info": "상품별 가격대와 중량을 기준으로 상품 카테고리를 분류합니다."},
+            {"name": "고객 가치", "group": '주문자연락처', "feats": ['item_revenue', '재구매 횟수'], "cols": ['누적 지출', '재구매'], "info": "고객별 지출액과 구매 빈도를 기준으로 고객 세그먼트를 분류합니다."}
+        ]
+
+        for i, sc in enumerate(scenarios):
+            with sub_tabs[i]:
+                st.subheader(f"{sc['name']} 분석")
+                st.caption(sc['info'])
                 
-            st.info(f"💡 **분석 가이드**: 우측 상단으로 갈수록 {labels[features[0]]}와 {labels[features[1]]}가 모두 높은 핵심 군집을 의미합니다.")
-        else:
-            st.warning(f"분석을 위한 데이터 포인트가 부족합니다. (현재 {len(agg_df)}개, 최소 3개 필요)")
+                # 데이터 집계
+                if i == 3: # 상품별은 평균
+                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'mean', sc['feats'][1]: 'mean'}).reset_index()
+                elif i in [0, 2]: # 지역, 시간은 매출합/주문번호nunique
+                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'nunique'}).reset_index()
+                elif i == 1: # 셀러는 매출합/재구매mean
+                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'mean'}).reset_index()
+                else: # 고객은 매출합/재구매max
+                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'max'}).reset_index()
+                
+                agg.columns = ['ID', 'F1', 'F2']
+                
+                if len(agg) >= 3:
+                    n_clus = st.slider(f"{sc['name']} 군집 수", 2, 5, 3, key=f"slider_{i}")
+                    
+                    # 정규화 및 클러스터링
+                    scaler = StandardScaler()
+                    scaled = scaler.fit_transform(agg[['F1', 'F2']].fillna(0))
+                    kmeans = KMeans(n_clusters=n_clus, random_state=42)
+                    agg['cluster'] = kmeans.fit_predict(scaled)
+                    
+                    c1, c2 = st.columns([1.5, 1])
+                    with c1:
+                        fig = px.scatter(agg, x='F1', y='F2', color='cluster', hover_data=['ID'],
+                                        labels={'F1': sc['cols'][0], 'F2': sc['cols'][1]},
+                                        title=f"{sc['name']} 클러스터 분포", color_continuous_scale='Turbo')
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with c2:
+                        summary = agg.groupby('cluster')[['F1', 'F2']].mean().reset_index()
+                        summary.columns = ['군집', sc['cols'][0], sc['cols'][1]]
+                        # 페르소나 추가
+                        summary['페르소나'] = summary.apply(lambda row: get_persona(row, sub_tab_names[i][2:], [sc['cols'][0], sc['cols'][1]], summary), axis=1)
+                        st.write("**군집 특성 분석**")
+                        st.dataframe(summary.style.background_gradient(cmap='YlGn'), use_container_width=True)
+                        
+                    st.info(f"💡 **분석 결과**: 이 데이터셋에서는 총 {n_clus}개의 {sc['name']} 그룹이 발견되었습니다. 각 그룹의 페르소나를 통해 타겟팅 전략을 수립하세요.")
+                else:
+                    st.warning("분석을 위한 데이터 포인트가 부족합니다.")
     else:
         st.warning("데이터가 없습니다.")
 
