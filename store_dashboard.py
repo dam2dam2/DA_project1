@@ -228,17 +228,28 @@ with tabs[3]:
                 st.subheader(f"{sc['name']} 분석")
                 st.caption(sc['info'])
                 
-                # 데이터 집계
-                if i == 3: # 상품별은 평균
-                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'mean', sc['feats'][1]: 'mean'}).reset_index()
-                elif i in [0, 2]: # 지역, 시간은 매출합/주문번호nunique
+                # 데이터 집계 및 대표 명칭 추출
+                if i == 3: # 상품별 (UID 기준)
+                    agg = filtered_df.groupby('UID').agg({sc['feats'][0]: 'mean', sc['feats'][1]: 'mean', '상품명': 'first'}).reset_index()
+                    agg.columns = ['ID', 'F1', 'F2', 'DisplayName']
+                elif i == 4: # 고객별 (연락처 기준)
+                    agg = filtered_df.groupby('주문자연락처').agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'max', '받는사람': 'first'}).reset_index()
+                    # 실명 보호를 위해 마스킹 처리 (예: 홍*동)
+                    agg['DisplayName'] = agg['받는사람'].apply(lambda x: str(x)[0] + "*" + str(x)[-1] if len(str(x)) >= 2 else str(x))
+                    agg.columns = ['ID', 'F1', 'F2', 'OriginalName', 'DisplayName']
+                    agg = agg[['ID', 'F1', 'F2', 'DisplayName']]
+                elif i == 2: # 시간대별
                     agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'nunique'}).reset_index()
-                elif i == 1: # 셀러는 매출합/재구매mean
+                    agg.columns = ['ID', 'F1', 'F2']
+                    agg['DisplayName'] = agg['ID'].astype(str) + "시"
+                elif i == 0: # 지역
+                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'nunique'}).reset_index()
+                    agg.columns = ['ID', 'F1', 'F2']
+                    agg['DisplayName'] = agg['ID']
+                else: # 셀러
                     agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'mean'}).reset_index()
-                else: # 고객은 매출합/재구매max
-                    agg = filtered_df.groupby(sc['group']).agg({sc['feats'][0]: 'sum', sc['feats'][1]: 'max'}).reset_index()
-                
-                agg.columns = ['ID', 'F1', 'F2']
+                    agg.columns = ['ID', 'F1', 'F2']
+                    agg['DisplayName'] = agg['ID']
                 
                 if len(agg) >= 3:
                     n_clus = st.slider(f"{sc['name']} 군집 수", 2, 5, 3, key=f"slider_{i}")
@@ -251,7 +262,9 @@ with tabs[3]:
                     
                     c1, c2 = st.columns([1.5, 1])
                     with c1:
-                        fig = px.scatter(agg, x='F1', y='F2', color='cluster', hover_data=['ID'],
+                        # 호버 데이터에 DisplayName 포함
+                        fig = px.scatter(agg, x='F1', y='F2', color='cluster', 
+                                        hover_data={'ID':True, 'DisplayName':True, 'cluster':False, 'F1':False, 'F2':False},
                                         labels={'F1': sc['cols'][0], 'F2': sc['cols'][1]},
                                         title=f"{sc['name']} 클러스터 분포", color_continuous_scale='Turbo')
                         st.plotly_chart(fig, use_container_width=True)
@@ -260,8 +273,8 @@ with tabs[3]:
                         summary = agg.groupby('cluster')[['F1', 'F2']].mean().reset_index()
                         summary.columns = ['군집', sc['cols'][0], sc['cols'][1]]
                         
-                        # 소속 항목 샘플 추가
-                        member_samples = agg.groupby('cluster')['ID'].apply(lambda x: ", ".join(x.astype(str).head(8)) + ("..." if len(x) > 8 else ""))
+                        # 소속 항목 샘플 (가독성 높은 DisplayName 사용)
+                        member_samples = agg.groupby('cluster')['DisplayName'].apply(lambda x: ", ".join(x.astype(str).head(10)) + ("..." if len(x) > 10 else ""))
                         summary['소속 항목'] = member_samples.values
                         
                         # 페르소나 추가
