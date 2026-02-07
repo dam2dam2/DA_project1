@@ -99,7 +99,7 @@ with k4:
 st.divider()
 
 # --- 4. Tabs 구성 ---
-tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🏪 셀러별 심층 분석", "📊 셀러 통합 비교", "🌐 지역별 분석", "📋 데이터 탐색기"])
+tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖️ 무게/가격 분포", "🧬 고객 군집 분석(Clustering)", "🏪 셀러별 심층 분석", "📊 셀러 통합 비교", "🌐 지역별 분석", "💡 가설 검증", "📋 데이터 탐색기"])
 
 # Tab 1: 매출 및 성과
 with tabs[0]:
@@ -456,24 +456,141 @@ with tabs[5]:
     else:
         st.warning("데이터가 없습니다.")
 
-# Tab 7: 지역별 분석
-with tabs[6]:
-    st.header("🌐 광역지자체별 성과")
+# Tab 8: 가설 검증 (Hypothesis Verification)
+with tabs[7]:
+    st.header("💡 비즈니스 가설 검증 (Hypothesis Verification)")
     if not filtered_df.empty:
-        region_agg = filtered_df.groupby('광역지역(정식)').agg({'item_revenue':'sum', '주문번호':'count'}).reset_index().sort_values('item_revenue', ascending=False)
-        r1, r2 = st.columns([2, 1])
-        with r1:
-            fig_region = px.bar(region_agg, x='광역지역(정식)', y='item_revenue', color='item_revenue',
-                                title="지역별 총 매출액", color_continuous_scale='Tealgrn')
-            st.plotly_chart(fig_region, use_container_width=True)
-        with r2:
-            st.write("**지역별 매출 상세**")
-            st.dataframe(region_agg, use_container_width=True)
+        # 가설 선택
+        hypotheses = [
+            "1. 경기도권 매출은 특정 셀러의 영향인가?",
+            "2. 이벤트 상품은 실제 구매량이 더 높은가?",
+            "3. 선물 목적일 때 더 프리미엄 옵션을 선택하는가?",
+            "4. 특정 셀러에게 재구매가 편중되어 있는가?",
+            "5. 키워드별(1+1, 초고당도 등) 판매 효율 비교",
+            "6. 전체 매출 감소와 셀러 이탈의 상관관계",
+            "7. 서울 지역은 소량(적은 무게) 구매 비중이 높은가?"
+        ]
+        selected_hypo = st.selectbox("검증할 가설을 선택하세요", hypotheses)
+        st.divider()
+
+        if selected_hypo.startswith("1."):
+            st.subheader("📍 경기도권 매출과 셀러의 상관성")
+            gg_df = filtered_df[filtered_df['광역지역'] == '경기']
+            if not gg_df.empty:
+                gg_seller = gg_df.groupby('셀러명')['item_revenue'].sum().reset_index().sort_values('item_revenue', ascending=False)
+                c1, c2 = st.columns([1.5, 1])
+                with c1:
+                    fig_gg = px.pie(gg_seller.head(10), values='item_revenue', names='셀러명', title="경기도 내 매출 상위 10개 셀러 비중")
+                    st.plotly_chart(fig_gg, use_container_width=True)
+                with c2:
+                    st.write("**경기도 매출 기여도 상위 셀러**")
+                    st.dataframe(gg_seller.head(10), use_container_width=True)
+                st.info("💡 **인사이트**: 상위 셀러의 비중이 압도적이라면 경기도 매출은 지역적 특성보다 특정 셀러의 마케팅 영향이 큽니다.")
+            else: st.warning("경기도 데이터가 없습니다.")
+
+        elif selected_hypo.startswith("2."):
+            st.subheader("🎁 이벤트 상품의 구매 유도 효과")
+            ev_agg = filtered_df.groupby('이벤트 여부').agg({
+                '주문수량': 'mean',
+                'item_revenue': 'mean',
+                '주문번호': 'count'
+            }).reset_index()
+            ev_agg.columns = ['이벤트 여부', '평균 주문수량', '평균 객단가', '총 주문건수']
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                fig_ev1 = px.bar(ev_agg, x='이벤트 여부', y='평균 주문수량', color='이벤트 여부', title="이벤트 유무별 평균 주문 수량")
+                st.plotly_chart(fig_ev1, use_container_width=True)
+            with c2:
+                fig_ev2 = px.bar(ev_agg, x='이벤트 여부', y='평균 객단가', color='이벤트 여부', title="이벤트 유무별 평균 객단가")
+                st.plotly_chart(fig_ev2, use_container_width=True)
+            st.info("💡 **인사이트**: 이벤트 상품의 평균 주문수량이 일반 상품보다 유의미하게 높다면 이벤트의 볼륨업 효과가 증명된 것입니다.")
+
+        elif selected_hypo.startswith("3."):
+            st.subheader("💝 선물 목적 방문자의 프리미엄 선호도")
+            # 등급 및 가격대 교차 분석
+            gift_df = filtered_df.groupby(['목적', '상품성등급_그룹']).size().unstack(fill_value=0).reset_index()
+            fig_gift = px.bar(gift_df, x='목적', y=gift_df.columns[1:], title="주문 목적별 상품 등급 선택 비중", barmode='group')
+            st.plotly_chart(fig_gift, use_container_width=True)
+            
+            st.write("**목적별 평균 결제 단가 비교**")
+            gift_price = filtered_df.groupby('목적')['판매단가'].mean().reset_index()
+            st.dataframe(gift_price.style.format({'판매단가': '{:,.0f}원'}), use_container_width=True)
+            st.info("💡 **인사이트**: '선물' 목적 주문에서 '프리미엄' 등급 비중이 높거나 평균 단가가 높다면 가설이 성립합니다.")
+
+        elif selected_hypo.startswith("4."):
+            st.subheader("🔄 셀러별 고객 충성도(재구매) 랭킹")
+            seller_loyalty = filtered_df.groupby('셀러명').agg({
+                '주문번호': 'nunique',
+                '재구매 횟수': lambda x: (x > 0).sum()
+            }).reset_index()
+            seller_loyalty['재구매 발생률(%)'] = (seller_loyalty['재구매 횟수'] / seller_loyalty['주문번호']) * 100
+            seller_loyalty = seller_loyalty.sort_values('재구매 발생률(%)', ascending=False).head(15)
+            
+            fig_loyalty = px.bar(seller_loyalty, x='셀러명', y='재구매 발생률(%)', color='재구매 발생률(%)', title="재구매 발생 빈도가 높은 상위 15개 셀러")
+            st.plotly_chart(fig_loyalty, use_container_width=True)
+            st.info("💡 **인사이트**: 특정 셀러의 재구매율이 독보적으로 높다면 해당 셀러의 상품 품질이나 서비스가 우수함을 의미합니다.")
+
+        elif selected_hypo.startswith("5."):
+            st.subheader("🔍 상품명 핵심 키워드별 판매 성과")
+            keywords = ["1+1", "초고당도", "과즙", "명품", "가정용", "산지직송", "실속"]
+            kw_results = []
+            for kw in keywords:
+                mask = filtered_df['상품명'].str.contains(kw, na=False)
+                kw_df = filtered_df[mask]
+                if not kw_df.empty:
+                    kw_results.append({
+                        '키워드': kw,
+                        '평균 매출액': kw_df['item_revenue'].mean(),
+                        '주문 건수': kw_df['주문번호'].nunique()
+                    })
+            kw_perf = pd.DataFrame(kw_results).sort_values('평균 매출액', ascending=False)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                fig_kw1 = px.bar(kw_perf, x='키워드', y='평균 매출액', title="키워드별 평균 매출액(AOV)")
+                st.plotly_chart(fig_kw1, use_container_width=True)
+            with c2:
+                fig_kw2 = px.bar(kw_perf, x='키워드', y='주문 건수', title="키워드별 총 주문 건수")
+                st.plotly_chart(fig_kw2, use_container_width=True)
+            st.info("💡 **인사이트**: 어떤 키워드가 더 많은 클릭(주문)을 유도하고, 어떤 키워드가 더 높은 단가의 구매를 유도하는지 비교할 수 있습니다.")
+
+        elif selected_hypo.startswith("6."):
+            st.subheader("📉 전체 매출 추이와 셀러 수의 상관성")
+            monthly_trend = filtered_df.groupby('month').agg({
+                'item_revenue': 'sum',
+                '셀러명': 'nunique'
+            }).reset_index()
+            
+            fig_dual = go.Figure()
+            fig_dual.add_trace(go.Scatter(x=monthly_trend['month'], y=monthly_trend['item_revenue'], name='총 매출액', line=dict(color='firebrick', width=4)))
+            fig_dual.add_trace(go.Bar(x=monthly_trend['month'], y=monthly_trend['셀러명'], name='활성 셀러 수', yaxis='y2', opacity=0.3))
+            
+            fig_dual.update_layout(
+                title="매출액 vs 활성 셀러 수 추이",
+                yaxis=dict(title="매출액"),
+                yaxis2=dict(title="셀러 수", overlaying='y', side='right')
+            )
+            st.plotly_chart(fig_dual, use_container_width=True)
+            st.info("💡 **인사이트**: 매출 하락기에 셀러 수도 함께 줄어든다면 셀러 이탈이 매출 감소의 핵심 원인일 가능성이 높습니다.")
+
+        elif selected_hypo.startswith("7."):
+            st.subheader("🏢 서울 지역의 소량 구매 특성")
+            seoul_vs_others = filtered_df.copy()
+            seoul_vs_others['지역구분'] = seoul_vs_others['광역지역'].apply(lambda x: '서울' if x == '서울' else '기타')
+            
+            fig_box = px.box(seoul_vs_others, x='지역구분', y='무게(kg)', color='지역구분', title="서울 vs 기타 지역 구매 중량(kg) 분포")
+            st.plotly_chart(fig_box, use_container_width=True)
+            
+            st.write("**지역별 평균 구매 중량 상세**")
+            weight_avg = seoul_vs_others.groupby('지역구분')['무게(kg)'].mean().reset_index()
+            st.dataframe(weight_avg.style.format({'무게(kg)': '{:.2f}kg'}), use_container_width=True)
+            st.info("💡 **인사이트**: 서울 지역의 평균 무게가 유의미하게 낮거나 3kg 미만 비중이 높다면 1~2인 가구 타겟 전략이 필요합니다.")
     else:
         st.warning("데이터가 없습니다.")
 
-# Tab 8: 데이터 탐색기
-with tabs[7]:
+# Tab 9: 데이터 탐색기
+with tabs[8]:
     st.subheader("상세 데이터 테이블")
     st.dataframe(filtered_df, use_container_width=True)
     if not filtered_df.empty:
