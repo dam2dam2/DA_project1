@@ -474,118 +474,169 @@ with tabs[7]:
         st.divider()
 
         if selected_hypo.startswith("1."):
-            st.subheader("📍 경기도권 매출과 셀러의 상관성")
-            gg_df = filtered_df[filtered_df['광역지역'] == '경기']
-            if not gg_df.empty:
-                gg_seller = gg_df.groupby('셀러명')['item_revenue'].sum().reset_index().sort_values('item_revenue', ascending=False)
-                c1, c2 = st.columns([1.5, 1])
-                with c1:
-                    fig_gg = px.pie(gg_seller.head(10), values='item_revenue', names='셀러명', title="경기도 내 매출 상위 10개 셀러 비중")
-                    st.plotly_chart(fig_gg, use_container_width=True)
-                with c2:
-                    st.write("**경기도 매출 기여도 상위 셀러**")
-                    st.dataframe(gg_seller.head(10), use_container_width=True)
-                st.info("💡 **인사이트**: 상위 셀러의 비중이 압도적이라면 경기도 매출은 지역적 특성보다 특정 셀러의 마케팅 영향이 큽니다.")
-            else: st.warning("경기도 데이터가 없습니다.")
+            st.subheader("📍 경기도권 매출과 셀러의 입지 계수(LQ) 분석")
+            st.markdown("""
+            **입지 계수(LQ, Location Quotient)**: 특정 셀러가 특정 지역에 얼마나 특화되어 있는지를 나타내는 지표입니다.
+            - **LQ > 1**: 해당 셀러가 전체 지역보다 경기도에서 상대적으로 더 높은 경쟁력을 가짐 (특화됨)
+            - **LQ < 1**: 해당 셀러의 경기도 매출 비중이 전체 평균보다 낮음
+            """)
+            
+            # LQ 계산 로직
+            # 1. 전체 셀러의 경기도 매출 비중 (기준점)
+            total_sales_all = filtered_df['item_revenue'].sum()
+            total_gg_sales = filtered_df[filtered_df['광역지역'] == '경기']['item_revenue'].sum()
+            base_ratio = total_gg_sales / total_sales_all if total_sales_all > 0 else 0
+            
+            # 2. 셀러별 지표 계산
+            seller_region = filtered_df.groupby('셀러명').agg({
+                'item_revenue': 'sum'
+            }).reset_index()
+            seller_gg = filtered_df[filtered_df['광역지역'] == '경기'].groupby('셀러명').agg({
+                'item_revenue': 'sum'
+            }).reset_index()
+            seller_gg.columns = ['셀러명', 'gg_sales']
+            
+            lq_df = pd.merge(seller_region, seller_gg, on='셀러명', how='left').fillna(0)
+            lq_df['gg_ratio'] = lq_df['gg_sales'] / lq_df['item_revenue']
+            lq_df['LQ'] = lq_df['gg_ratio'] / base_ratio if base_ratio > 0 else 0
+            
+            # 매출액순으로 정렬하여 상위 분석
+            lq_top = lq_df.sort_values('item_revenue', ascending=False).head(15)
+            
+            c1, c2 = st.columns([1.5, 1])
+            with c1:
+                fig_lq = px.bar(lq_top, x='셀러명', y='LQ', color='LQ',
+                               title="상위 매출 셀러들의 경기도 입지 계수(LQ)",
+                               color_continuous_scale='RdYlGn', range_color=[0, 2])
+                fig_lq.add_hline(y=1.0, line_dash="dash", line_color="black", annotation_text="전체 평균 (LQ=1.0)")
+                st.plotly_chart(fig_lq, use_container_width=True)
+            with c2:
+                st.write("**셀러별 지역 의존도 상세**")
+                display_lq = lq_top[['셀러명', 'item_revenue', 'gg_ratio', 'LQ']].copy()
+                display_lq.columns = ['셀러명', '총 매출', '경기 매출 비중', '입지계수(LQ)']
+                st.dataframe(display_lq.style.format({'총 매출': '{:,.0f}원', '경기 매출 비중': '{:.1%}', '입지계수(LQ)': '{:.2f}'}), use_container_width=True)
+            
+            st.info(f"💡 **인사이트**: 현재 경기도 전체 매출 비중은 **{base_ratio:.1%}**입니다. LQ가 1.5 이상인 셀러는 경기도 고객들에게 특별히 선택받는 셀러이며, 이들이 많을수록 '경기도 매출은 특정 셀러가 주도한다'는 가설이 강화됩니다.")
 
         elif selected_hypo.startswith("2."):
-            st.subheader("🎁 이벤트 상품의 구매 유도 효과")
+            st.subheader("🎁 이벤트 상품의 매출 상승 지수(Lift Index)")
             ev_agg = filtered_df.groupby('이벤트 여부').agg({
                 '주문수량': 'mean',
                 'item_revenue': 'mean',
-                '주문번호': 'count'
+                '주문번호': 'nunique'
             }).reset_index()
-            ev_agg.columns = ['이벤트 여부', '평균 주문수량', '평균 객단가', '총 주문건수']
             
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_ev1 = px.bar(ev_agg, x='이벤트 여부', y='평균 주문수량', color='이벤트 여부', title="이벤트 유무별 평균 주문 수량")
-                st.plotly_chart(fig_ev1, use_container_width=True)
-            with c2:
-                fig_ev2 = px.bar(ev_agg, x='이벤트 여부', y='평균 객단가', color='이벤트 여부', title="이벤트 유무별 평균 객단가")
-                st.plotly_chart(fig_ev2, use_container_width=True)
-            st.info("💡 **인사이트**: 이벤트 상품의 평균 주문수량이 일반 상품보다 유의미하게 높다면 이벤트의 볼륨업 효과가 증명된 것입니다.")
+            # Lift 계산 (N 대비 Y의 배수)
+            try:
+                non_ev = ev_agg[ev_agg['이벤트 여부'] == 'N'].iloc[0]
+                is_ev = ev_agg[ev_agg['이벤트 여부'] == 'Y'].iloc[0]
+                lift_qty = is_ev['주문수량'] / non_ev['주문수량']
+                lift_rev = is_ev['item_revenue'] / non_ev['item_revenue']
+            except:
+                lift_qty, lift_rev = 0, 0
+            
+            l1, l2 = st.columns(2)
+            l1.metric("주문수량 상승 지수", f"{lift_qty:.2f}배", help="일반 상품 대비 이벤트 상품의 평균 주문수량 배수")
+            l2.metric("결제금액 상승 지수", f"{lift_rev:.2f}배", help="일반 상품 대비 이벤트 상품의 평균 결제금액 배수")
+            
+            st.write("**품종별 이벤트 효과 차이**")
+            var_ev = filtered_df.groupby(['품종', '이벤트 여부'])['item_revenue'].mean().unstack().reset_index()
+            var_ev['Lift'] = var_ev['Y'] / var_ev['N']
+            fig_var_ev = px.bar(var_ev.sort_values('Lift', ascending=False), x='품종', y='Lift', title="품종별 이벤트 매출 상승 지수")
+            st.plotly_chart(fig_var_ev, use_container_width=True)
+            st.info("💡 **인사이트**: 상승 지수가 1.0보다 높을수록 이벤트의 '객단가 높이기' 효과가 실존함을 의미합니다.")
 
         elif selected_hypo.startswith("3."):
-            st.subheader("💝 선물 목적 방문자의 프리미엄 선호도")
-            # 등급 및 가격대 교차 분석
-            gift_df = filtered_df.groupby(['목적', '상품성등급_그룹']).size().unstack(fill_value=0).reset_index()
-            fig_gift = px.bar(gift_df, x='목적', y=gift_df.columns[1:], title="주문 목적별 상품 등급 선택 비중", barmode='group')
-            st.plotly_chart(fig_gift, use_container_width=True)
+            st.subheader("💝 선물 목적 구매자의 고가 옵션 선택 편향")
+            # 가격대별 비중 분석
+            price_order = ["1만원 이하", "1~3만원", "3~5만원", "5~10만원", "10만원 초반"]
+            bias_df = filtered_df.groupby(['목적', '가격대']).size().unstack(fill_value=0)
+            bias_ratio = bias_df.div(bias_df.sum(axis=1), axis=0)
+            bias_ratio = bias_ratio.reindex(columns=price_order).reset_index()
             
-            st.write("**목적별 평균 결제 단가 비교**")
-            gift_price = filtered_df.groupby('목적')['판매단가'].mean().reset_index()
-            st.dataframe(gift_price.style.format({'판매단가': '{:,.0f}원'}), use_container_width=True)
-            st.info("💡 **인사이트**: '선물' 목적 주문에서 '프리미엄' 등급 비중이 높거나 평균 단가가 높다면 가설이 성립합니다.")
+            fig_bias = px.bar(bias_ratio, x='목적', y=price_order, title="구매 목적별 가격대 선택 비중 (%)", barmode='group')
+            st.plotly_chart(fig_bias, use_container_width=True)
+            
+            # 로얄과/프리미엄 선택 확률 비교
+            premium_prob = filtered_df.groupby('목적')['상품성등급_그룹'].apply(lambda x: (x == '프리미엄').mean()).reset_index()
+            premium_prob.columns = ['목적', '프리미엄 선택 확률']
+            st.write("**프리미엄 등급 선택 확률 비교**")
+            st.table(premium_prob.style.format({'프리미엄 선택 확률': '{:.2%}'}))
+            st.info("💡 **인사이트**: '선물' 목적 시 프리미엄 선택 확률이 '개인소비'보다 유의미하게 높다면 고객은 선물 시 더 비싼 옵션을 기꺼이 수용함을 뜻합니다.")
 
         elif selected_hypo.startswith("4."):
-            st.subheader("🔄 셀러별 고객 충성도(재구매) 랭킹")
-            seller_loyalty = filtered_df.groupby('셀러명').agg({
-                '주문번호': 'nunique',
-                '재구매 횟수': lambda x: (x > 0).sum()
+            st.subheader("🔄 셀러별 재구매 유지력(Retention) 심화")
+            # 셀러별로 2회 이상 주문한 고객의 수 / 전체 고객의 수
+            retention_df = filtered_df.groupby('셀러명').agg({
+                '주문자연락처': ['nunique', lambda x: x.duplicated().sum()]
             }).reset_index()
-            seller_loyalty['재구매 발생률(%)'] = (seller_loyalty['재구매 횟수'] / seller_loyalty['주문번호']) * 100
-            seller_loyalty = seller_loyalty.sort_values('재구매 발생률(%)', ascending=False).head(15)
+            retention_df.columns = ['셀러명', 'total_customers', 'returning_customers']
+            retention_df['Retention_Rate(%)'] = (retention_df['returning_customers'] / retention_df['total_customers']) * 100
+            retention_df = retention_df[retention_df['total_customers'] >= 10].sort_values('Retention_Rate(%)', ascending=False).head(15)
             
-            fig_loyalty = px.bar(seller_loyalty, x='셀러명', y='재구매 발생률(%)', color='재구매 발생률(%)', title="재구매 발생 빈도가 높은 상위 15개 셀러")
-            st.plotly_chart(fig_loyalty, use_container_width=True)
-            st.info("💡 **인사이트**: 특정 셀러의 재구매율이 독보적으로 높다면 해당 셀러의 상품 품질이나 서비스가 우수함을 의미합니다.")
+            fig_ret = px.scatter(retention_df, x='total_customers', y='Retention_Rate(%)', size='total_customers',
+                                text='셀러명', title="셀러별 규모 대비 재구매 유지율 (최소 고객 10명 이상)",
+                                labels={'total_customers':'전체 고객 수', 'Retention_Rate(%)':'재구매 고객 비중(%)'})
+            st.plotly_chart(fig_ret, use_container_width=True)
+            st.info("💡 **인사이트**: 오른쪽 상단에 위치한 셀러는 규모와 충성도를 모두 잡은 핵심 셀러입니다.")
 
         elif selected_hypo.startswith("5."):
-            st.subheader("🔍 상품명 핵심 키워드별 판매 성과")
-            keywords = ["1+1", "초고당도", "과즙", "명품", "가정용", "산지직송", "실속"]
-            kw_results = []
-            for kw in keywords:
-                mask = filtered_df['상품명'].str.contains(kw, na=False)
-                kw_df = filtered_df[mask]
-                if not kw_df.empty:
-                    kw_results.append({
-                        '키워드': kw,
-                        '평균 매출액': kw_df['item_revenue'].mean(),
-                        '주문 건수': kw_df['주문번호'].nunique()
-                    })
-            kw_perf = pd.DataFrame(kw_results).sort_values('평균 매출액', ascending=False)
+            st.subheader("🔍 키워드별 매출 기여 및 프리미엄 지수")
+            keywords = ["1+1", "초고당도", "꿀", "명품", "가정용", "산지직송", "실속"]
+            kw_list = []
+            avg_base_price = filtered_df['판매단가'].mean()
             
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_kw1 = px.bar(kw_perf, x='키워드', y='평균 매출액', title="키워드별 평균 매출액(AOV)")
-                st.plotly_chart(fig_kw1, use_container_width=True)
-            with c2:
-                fig_kw2 = px.bar(kw_perf, x='키워드', y='주문 건수', title="키워드별 총 주문 건수")
-                st.plotly_chart(fig_kw2, use_container_width=True)
-            st.info("💡 **인사이트**: 어떤 키워드가 더 많은 클릭(주문)을 유도하고, 어떤 키워드가 더 높은 단가의 구매를 유도하는지 비교할 수 있습니다.")
+            for kw in keywords:
+                kw_df = filtered_df[filtered_df['상품명'].str.contains(kw, na=False)]
+                if not kw_df.empty:
+                    kw_list.append({
+                        '키워드': kw,
+                        '건수': len(kw_df),
+                        '평균단가': kw_df['판매단가'].mean(),
+                        '가격 프리미엄': kw_df['판매단가'].mean() / avg_base_price
+                    })
+            kw_advanced = pd.DataFrame(kw_list).sort_values('가격 프리미엄', ascending=False)
+            
+            fig_kw_adv = px.scatter(kw_advanced, x='건수', y='가격 프리미엄', text='키워드', size='건수',
+                                   title="키워드별 노출 빈도 vs 가격 프리미엄 배수",
+                                   labels={'가격 프리미엄':'전체 평균 단가 대비 배수'})
+            fig_kw_adv.add_hline(y=1.0, line_dash="dash")
+            st.plotly_chart(fig_kw_adv, use_container_width=True)
+            st.info("💡 **인사이트**: '가격 프리미엄'이 1.0보다 높은 키워드는 해당 단어를 썼을 때 고객이 더 높은 가격을 지불할 의사가 있음을 시사합니다.")
 
         elif selected_hypo.startswith("6."):
-            st.subheader("📉 전체 매출 추이와 셀러 수의 상관성")
-            monthly_trend = filtered_df.groupby('month').agg({
+            st.subheader("📉 매출 하락 원인 분석: 셀러 이탈 vs 객단가 하락")
+            m_agg = filtered_df.groupby('month').agg({
                 'item_revenue': 'sum',
-                '셀러명': 'nunique'
+                '셀러명': 'nunique',
+                '주문번호': 'nunique'
             }).reset_index()
+            m_agg['temp_revenue_per_seller'] = m_agg['item_revenue'] / m_agg['셀러명']
             
-            fig_dual = go.Figure()
-            fig_dual.add_trace(go.Scatter(x=monthly_trend['month'], y=monthly_trend['item_revenue'], name='총 매출액', line=dict(color='firebrick', width=4)))
-            fig_dual.add_trace(go.Bar(x=monthly_trend['month'], y=monthly_trend['셀러명'], name='활성 셀러 수', yaxis='y2', opacity=0.3))
+            fig_churn = go.Figure()
+            fig_churn.add_trace(go.Bar(x=m_agg['month'], y=m_agg['셀러명'], name='활성 셀러 수'))
+            fig_churn.add_trace(go.Scatter(x=m_agg['month'], y=m_agg['temp_revenue_per_seller'], name='셀러당 평균 매출', yaxis='y2'))
             
-            fig_dual.update_layout(
-                title="매출액 vs 활성 셀러 수 추이",
-                yaxis=dict(title="매출액"),
-                yaxis2=dict(title="셀러 수", overlaying='y', side='right')
-            )
-            st.plotly_chart(fig_dual, use_container_width=True)
-            st.info("💡 **인사이트**: 매출 하락기에 셀러 수도 함께 줄어든다면 셀러 이탈이 매출 감소의 핵심 원인일 가능성이 높습니다.")
+            fig_churn.update_layout(title="월별 활성 셀러 수와 셀러당 평균 기여도",
+                                   yaxis=dict(title="셀러 수"),
+                                   yaxis2=dict(title="셀러당 매출", overlaying='y', side='right'))
+            st.plotly_chart(fig_churn, use_container_width=True)
+            st.info("💡 **인사이트**: 셀러 수는 유지되는데 셀러당 매출이 줄어드는지, 혹은 셀러 수 자체가 줄어드는지 구분하여 하락 원인을 진단합니다.")
 
-        elif selected_hypo.startswith("7."):
-            st.subheader("🏢 서울 지역의 소량 구매 특성")
-            seoul_vs_others = filtered_df.copy()
-            seoul_vs_others['지역구분'] = seoul_vs_others['광역지역'].apply(lambda x: '서울' if x == '서울' else '기타')
+        else: # 7. 서울 소량 구매
+            st.subheader("🏢 지역별 소량(3kg 이하) 주문 비중 비교")
+            weight_mask = filtered_df['무게区分'] == '<3kg'
             
-            fig_box = px.box(seoul_vs_others, x='지역구분', y='무게(kg)', color='지역구분', title="서울 vs 기타 지역 구매 중량(kg) 분포")
-            st.plotly_chart(fig_box, use_container_width=True)
+            region_weight = filtered_df.groupby('광역지역').apply(lambda x: (x['무게区分'] == '<3kg').mean()).reset_index()
+            region_weight.columns = ['광역지역', '소량주문 비중']
+            region_weight = region_weight.sort_values('소량주문 비중', ascending=False)
             
-            st.write("**지역별 평균 구매 중량 상세**")
-            weight_avg = seoul_vs_others.groupby('지역구분')['무게(kg)'].mean().reset_index()
-            st.dataframe(weight_avg.style.format({'무게(kg)': '{:.2f}kg'}), use_container_width=True)
-            st.info("💡 **인사이트**: 서울 지역의 평균 무게가 유의미하게 낮거나 3kg 미만 비중이 높다면 1~2인 가구 타겟 전략이 필요합니다.")
+            fig_rw = px.bar(region_weight, x='광역지역', y='소량주문 비중', color='소량주문 비중',
+                           title="지역별 3kg 이하 소량 주문 건수 비중 (%)",
+                           color_continuous_scale='Blues')
+            fig_rw.add_hline(y=region_weight['소량주문 비중'].mean(), line_dash="dash", annotation_text="전 지역 평균")
+            st.plotly_chart(fig_rw, use_container_width=True)
+            st.info("💡 **인사이트**: 서울의 소량 주문 비중이 전체 평균보다 월등히 높다면 '1~2인 가구의 소량 주문' 가설이 설득력을 얻습니다.")
     else:
         st.warning("데이터가 없습니다.")
 
