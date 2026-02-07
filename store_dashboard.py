@@ -135,26 +135,76 @@ with tabs[0]:
 # Tab 2: 품종 및 상품 분석
 with tabs[1]:
     if not filtered_df.empty:
-        st.subheader("품종 및 상품 포트폴리오")
-        p1, p2 = st.columns(2)
+        st.subheader("📦 품종 및 상품 포트폴리오 분석")
         
-        st.markdown("---")
-        st.subheader("📊 세부 분석: 목적별 품종 선호도 및 상품 순위")
+        # 품종별 성과 요약 (KPI 레이아웃)
+        v_agg = filtered_df.groupby('품종').agg({
+            'item_revenue': 'sum',
+            '주문번호': 'nunique',
+            '주문수량': 'sum'
+        }).reset_index()
+        v_agg['평균 객단가(AOV)'] = v_agg['item_revenue'] / v_agg['주문번호']
+        v_agg.columns = ['품종', '총 매출액', '주문 건수', '총 판매수량', '평균 객단가(AOV)']
+        
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            st.write("**품종별 주요 성과 지표**")
+            st.dataframe(v_agg.style.format({
+                '총 매출액': '{:,.0f}원',
+                '주문 건수': '{:,}건',
+                '총 판매수량': '{:,}개',
+                '평균 객단가(AOV)': '{:,.0f}원'
+            }).background_gradient(subset=['총 매출액'], cmap='Oranges'), use_container_width=True)
+            
+        with c2:
+            st.write("**품종별 매출 비중**")
+            fig_v_pie = px.pie(v_agg, values='총 매출액', names='품종', hole=0.4,
+                               color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_v_pie, use_container_width=True)
+            
+        st.divider()
+        st.subheader("📈 상품별 상세 성과 (Top 10)")
+        
+        t1, t2 = st.columns([2, 1])
+        with t1:
+            # 품종 가중치 포함 Top 상품
+            item_agg = filtered_df.groupby(['품종', '상품명']).agg({
+                'item_revenue': 'sum',
+                '주문번호': 'nunique',
+                '판매단가': 'mean'
+            }).sort_values('item_revenue', ascending=False).head(10).reset_index()
+            item_agg.columns = ['품종', '상품명', '매출액', '주문건수', '평균단가']
+            st.write("**매출 요약**")
+            st.dataframe(item_agg.style.format({
+                '매출액': '{:,.0f}원',
+                '주문건수': '{:,}건',
+                '평균단가': '{:,.0f}원'
+            }).bar(subset=['매출액'], color='#FFA500'), use_container_width=True)
+            
+        with t2:
+            # 품종별 평균 판매 단가 비교
+            v_price = filtered_df.groupby('품종')['판매단가'].mean().reset_index()
+            fig_v_p = px.box(filtered_df, x='품종', y='판매단가', color='품종', 
+                             title="품종별 가격 분포 (Box Plot)",
+                             category_orders={"품종": v_agg.sort_values('총 매출액', ascending=False)['품종'].tolist()})
+            st.plotly_chart(fig_v_p, use_container_width=True)
+
+        st.divider()
+        st.subheader("📊 목적별/품종별 교차 분석")
         pa1, pa2 = st.columns(2)
-        
         with pa1:
-            # 목적별 품종 매출 비중 (100% Stacked Bar)
             pv_agg = filtered_df.groupby(['목적', '품종'])['item_revenue'].sum().reset_index()
             fig_pv = px.bar(pv_agg, x='목적', y='item_revenue', color='품종', 
-                            title="구매 목적별 품종 매출 비중 (100% 비중)",
+                            title="구매 목적별 품종 매출 구성 (100% 비중)",
                             labels={'item_revenue':'매출액'},
-                            barmode='relative', color_discrete_sequence=px.colors.qualitative.Pastel)
+                            barmode='relative', color_discrete_sequence=px.colors.qualitative.Safe)
             st.plotly_chart(fig_pv, use_container_width=True)
-            
         with pa2:
-            top_items = filtered_df.groupby('상품명')['item_revenue'].sum().sort_values(ascending=False).head(10).reset_index()
-            st.write("**Top 10 상품 리스트**")
-            st.table(top_items)
+            # 목적별 평균 단가 및 중량
+            p_metrics = filtered_df.groupby('목적').agg({'item_revenue':'mean', '무게(kg)':'mean'}).reset_index()
+            fig_p_m = px.scatter(p_metrics, x='item_revenue', y='무게(kg)', text='목적', size='item_revenue',
+                                 title="목적별 평균 매출 vs 평균 중량", labels={'item_revenue':'평균 매출', '무게(kg)':'평균 중량'})
+            st.plotly_chart(fig_p_m, use_container_width=True)
     else:
         st.warning("데이터가 없습니다.")
 
