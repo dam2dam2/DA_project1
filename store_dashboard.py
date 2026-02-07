@@ -625,9 +625,9 @@ with tabs[7]:
 
         else: # 7. 서울 소량 구매
             st.subheader("🏢 지역별 소량(3kg 이하) 주문 비중 비교")
-            weight_mask = filtered_df['무게区分'] == '<3kg'
+            weight_mask = filtered_df['무게 구분'] == '<3kg'
             
-            region_weight = filtered_df.groupby('광역지역').apply(lambda x: (x['무게区分'] == '<3kg').mean()).reset_index()
+            region_weight = filtered_df.groupby('광역지역').apply(lambda x: (x['무게 구분'] == '<3kg').mean()).reset_index()
             region_weight.columns = ['광역지역', '소량주문 비중']
             region_weight = region_weight.sort_values('소량주문 비중', ascending=False)
             
