@@ -259,6 +259,11 @@ with tabs[3]:
                     with c2:
                         summary = agg.groupby('cluster')[['F1', 'F2']].mean().reset_index()
                         summary.columns = ['군집', sc['cols'][0], sc['cols'][1]]
+                        
+                        # 소속 항목 샘플 추가
+                        member_samples = agg.groupby('cluster')['ID'].apply(lambda x: ", ".join(x.astype(str).head(8)) + ("..." if len(x) > 8 else ""))
+                        summary['소속 항목'] = member_samples.values
+                        
                         # 페르소나 추가
                         summary['페르소나'] = summary.apply(lambda row: get_persona(row, sub_tab_names[i][2:], [sc['cols'][0], sc['cols'][1]], summary), axis=1)
                         st.write("**군집 특성 분석**")
