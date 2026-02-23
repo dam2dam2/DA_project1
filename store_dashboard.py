@@ -115,16 +115,17 @@ with tabs[0]:
             }).reset_index()
             trend_agg.columns = ['date', 'revenue', 'seller_count']
             
-            # 이중 축 그래프 생성 (매출: Bar, 셀러 수: Line)
+            # 이중 축 그래프 생성 (매출: Line/Area, 셀러 수: Line)
             fig_trend = go.Figure()
             
-            # 매출액 (왼쪽 축)
-            fig_trend.add_trace(go.Bar(
+            # 매출액 (왼쪽 축 - 기존 스타일 복구: Line + Fill)
+            fig_trend.add_trace(go.Scatter(
                 x=trend_agg['date'], 
                 y=trend_agg['revenue'],
                 name='매출액',
-                marker_color='#FF8C00',
-                opacity=0.6,
+                line=dict(color='#FF8C00', width=2),
+                fill='tozeroy',
+                mode='lines',
                 yaxis='y1'
             ))
             
