@@ -140,16 +140,14 @@ with tabs[0]:
             
             # 레이아웃 설정
             fig_trend.update_layout(
-                title="일별 매출 및 셀러 수 추이",
-                xaxis=dict(title="날짜"),
+                title=dict(text="일별 매출 및 셀러 수 추이"),
+                xaxis=dict(title=dict(text="날짜")),
                 yaxis=dict(
-                    title="매출액 (원)",
-                    titlefont=dict(color="#FF8C00"),
+                    title=dict(text="매출액 (원)", font=dict(color="#FF8C00")),
                     tickfont=dict(color="#FF8C00")
                 ),
                 yaxis2=dict(
-                    title="셀러 수 (명)",
-                    titlefont=dict(color="#FF4B4B"),
+                    title=dict(text="셀러 수 (명)", font=dict(color="#FF4B4B")),
                     tickfont=dict(color="#FF4B4B"),
                     anchor="x",
                     overlaying="y",
