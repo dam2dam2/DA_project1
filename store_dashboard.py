@@ -108,9 +108,58 @@ with tabs[0]:
         t1, t2 = st.columns([2, 1])
         
         with t1:
-            trend_agg = filtered_df.groupby('date')['item_revenue'].sum().reset_index()
-            fig_trend = px.line(trend_agg, x='date', y='item_revenue', title="일별 매출 추이")
-            fig_trend.update_traces(line_color='#FF8C00', fill='tozeroy')
+            # 일별 매출 및 셀러 수 집계
+            trend_agg = filtered_df.groupby('date').agg({
+                'item_revenue': 'sum',
+                '셀러명': 'nunique'
+            }).reset_index()
+            trend_agg.columns = ['date', 'revenue', 'seller_count']
+            
+            # 이중 축 그래프 생성 (매출: Bar, 셀러 수: Line)
+            fig_trend = go.Figure()
+            
+            # 매출액 (왼쪽 축)
+            fig_trend.add_trace(go.Bar(
+                x=trend_agg['date'], 
+                y=trend_agg['revenue'],
+                name='매출액',
+                marker_color='#FF8C00',
+                opacity=0.6,
+                yaxis='y1'
+            ))
+            
+            # 셀러 수 (오른쪽 축)
+            fig_trend.add_trace(go.Scatter(
+                x=trend_agg['date'], 
+                y=trend_agg['seller_count'],
+                name='셀러 수',
+                line=dict(color='#FF4B4B', width=3),
+                mode='lines+markers',
+                yaxis='y2'
+            ))
+            
+            # 레이아웃 설정
+            fig_trend.update_layout(
+                title="일별 매출 및 셀러 수 추이",
+                xaxis=dict(title="날짜"),
+                yaxis=dict(
+                    title="매출액 (원)",
+                    titlefont=dict(color="#FF8C00"),
+                    tickfont=dict(color="#FF8C00")
+                ),
+                yaxis2=dict(
+                    title="셀러 수 (명)",
+                    titlefont=dict(color="#FF4B4B"),
+                    tickfont=dict(color="#FF4B4B"),
+                    anchor="x",
+                    overlaying="y",
+                    side="right"
+                ),
+                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
+                margin=dict(l=20, r=20, t=50, b=20),
+                hovermode="x unified"
+            )
+            
             st.plotly_chart(fig_trend, use_container_width=True)
             
         with t2:
