@@ -40,6 +40,34 @@ def load_data(file_path):
         df['month'] = df['주문일'].dt.to_period('M').astype(str)
         df['day_name'] = df['주문일'].dt.day_name()
         df['hour'] = df['주문일'].dt.hour
+        
+    # --- 지역 정보 보완 (KeyError 방지) ---
+    if '주소' in df.columns:
+        if '시군구' not in df.columns or df['시군구'].isna().all():
+            def extract_sigungu(address):
+                address = str(address).strip()
+                parts = address.split()
+                if len(parts) > 1:
+                    # 첫 번째 단어가 광역(서울, 경기 등)인 경우 두 번째 단어 추출
+                    # 예: "경기도 수원시 팔달구" -> "수원시 팔달구" (아래 로직 참고)
+                    candidate = parts[1]
+                    if candidate.endswith(('시', '군', '구')):
+                        if candidate.endswith('시') and len(parts) > 2 and parts[2].endswith('구'):
+                            return candidate + " " + parts[2]
+                        return candidate
+                return "미분류"
+            df['시군구'] = df['주소'].apply(extract_sigungu)
+            
+        if '광역지역(정식)' not in df.columns or df['광역지역(정식)'].isna().all():
+            formal_map = {
+                '서울':'서울특별시','부산':'부산광역시','대구':'대구광역시','인천':'인천광역시','광주':'광주광역시','대전':'대전광역시','울산':'울산광역시','세종':'세종특별자치시',
+                '경기':'경기도','강원':'강원특별자치도','충북':'충청북도','충남':'충청남도','전북':'전북특별자치도','전남':'전라남도','경북':'경상북도','경남':'경상남도','제주':'제주특별자치도'
+            }
+            if '광역지역' in df.columns:
+                df['광역지역(정식)'] = df['광역지역'].map(formal_map).fillna(df['광역지역'])
+            else:
+                df['광역지역(정식)'] = df['주소'].apply(lambda x: str(x).split()[0] if len(str(x).split()) > 0 else "미분류")
+
     return df
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -105,68 +133,58 @@ tabs = st.tabs(["📈 매출 및 성과", "📦 품종 및 상품 분석", "⚖�
 with tabs[0]:
     if not filtered_df.empty:
         st.subheader("매출 트렌드 분석")
-        t1, t2 = st.columns([2, 1])
+        # 일별 매출 및 셀러 수 집계
+        trend_agg = filtered_df.groupby('date').agg({
+            'item_revenue': 'sum',
+            '셀러명': 'nunique'
+        }).reset_index()
+        trend_agg.columns = ['date', 'revenue', 'seller_count']
         
-        with t1:
-            # 일별 매출 및 셀러 수 집계
-            trend_agg = filtered_df.groupby('date').agg({
-                'item_revenue': 'sum',
-                '셀러명': 'nunique'
-            }).reset_index()
-            trend_agg.columns = ['date', 'revenue', 'seller_count']
-            
-            # 이중 축 그래프 생성 (매출: Line/Area, 셀러 수: Line)
-            fig_trend = go.Figure()
-            
-            # 매출액 (왼쪽 축 - 기존 스타일 복구: Line + Fill)
-            fig_trend.add_trace(go.Scatter(
-                x=trend_agg['date'], 
-                y=trend_agg['revenue'],
-                name='매출액',
-                line=dict(color='#FF8C00', width=2),
-                fill='tozeroy',
-                mode='lines',
-                yaxis='y1'
-            ))
-            
-            # 셀러 수 (오른쪽 축)
-            fig_trend.add_trace(go.Scatter(
-                x=trend_agg['date'], 
-                y=trend_agg['seller_count'],
-                name='셀러 수',
-                line=dict(color='#FF4B4B', width=3),
-                mode='lines+markers',
-                yaxis='y2'
-            ))
-            
-            # 레이아웃 설정
-            fig_trend.update_layout(
-                title=dict(text="일별 매출 및 셀러 수 추이"),
-                xaxis=dict(title=dict(text="날짜")),
-                yaxis=dict(
-                    title=dict(text="매출액 (원)", font=dict(color="#FF8C00")),
-                    tickfont=dict(color="#FF8C00")
-                ),
-                yaxis2=dict(
-                    title=dict(text="셀러 수 (명)", font=dict(color="#FF4B4B")),
-                    tickfont=dict(color="#FF4B4B"),
-                    anchor="x",
-                    overlaying="y",
-                    side="right"
-                ),
-                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
-                margin=dict(l=20, r=20, t=50, b=20),
-                hovermode="x unified"
-            )
-            
-            st.plotly_chart(fig_trend, use_container_width=True)
-            
-        with t2:
-            day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            day_agg = filtered_df.groupby('day_name')['item_revenue'].sum().reindex(day_order).fillna(0).reset_index()
-            fig_day = px.bar(day_agg, x='day_name', y='item_revenue', color='item_revenue',
-                             title="요일별 매출 비중", color_continuous_scale='Oranges')
-            st.plotly_chart(fig_day, use_container_width=True)
+        # 이중 축 그래프 생성 (매출: Line/Area, 셀러 수: Line)
+        fig_trend = go.Figure()
+        
+        # 매출액 (왼쪽 축 - 기존 스타일 복구: Line + Fill)
+        fig_trend.add_trace(go.Scatter(
+            x=trend_agg['date'], 
+            y=trend_agg['revenue'],
+            name='매출액',
+            line=dict(color='#FF8C00', width=2),
+            fill='tozeroy',
+            mode='lines',
+            yaxis='y1'
+        ))
+        
+        # 셀러 수 (오른쪽 축)
+        fig_trend.add_trace(go.Scatter(
+            x=trend_agg['date'], 
+            y=trend_agg['seller_count'],
+            name='셀러 수',
+            line=dict(color='#FF4B4B', width=3),
+            mode='lines+markers',
+            yaxis='y2'
+        ))
+        
+        # 레이아웃 설정
+        fig_trend.update_layout(
+            title=dict(text="일별 매출 및 셀러 수 추이"),
+            xaxis=dict(title=dict(text="날짜")),
+            yaxis=dict(
+                title=dict(text="매출액 (원)", font=dict(color="#FF8C00")),
+                tickfont=dict(color="#FF8C00")
+            ),
+            yaxis2=dict(
+                title=dict(text="셀러 수 (명)", font=dict(color="#FF4B4B")),
+                tickfont=dict(color="#FF4B4B"),
+                anchor="x",
+                overlaying="y",
+                side="right"
+            ),
+            legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
+            margin=dict(l=20, r=20, t=50, b=20),
+            hovermode="x unified"
+        )
+        
+        st.plotly_chart(fig_trend, use_container_width=True)
 
         st.markdown("---")
         st.subheader("주문 경로 및 방법")
